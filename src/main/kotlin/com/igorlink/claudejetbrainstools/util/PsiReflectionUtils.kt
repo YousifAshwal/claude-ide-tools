@@ -2,6 +2,7 @@ package com.igorlink.claudejetbrainstools.util
 
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Utility functions for reflection-based PSI element operations.
@@ -42,6 +43,31 @@ import com.intellij.psi.PsiFile
 object PsiReflectionUtils {
 
     /**
+     * Cache for Class.forName results to avoid repeated reflection lookups.
+     * Maps fully qualified class names to their Class objects, or null if the class is not available.
+     */
+    private val classCache = ConcurrentHashMap<String, Class<*>?>()
+
+    /**
+     * Gets a class by name with caching.
+     * Returns null if the class is not available.
+     *
+     * @param className The fully qualified class name to load
+     * @return The Class object, or null if the class cannot be loaded
+     */
+    private fun getClassCached(className: String): Class<*>? {
+        return classCache.computeIfAbsent(className) { name ->
+            try {
+                Class.forName(name)
+            } catch (e: ClassNotFoundException) {
+                null
+            } catch (e: Exception) {
+                null
+            }
+        }
+    }
+
+    /**
      * Internal helper for ancestor finding with configurable matching logic.
      *
      * @param element The starting PSI element
@@ -55,21 +81,15 @@ object PsiReflectionUtils {
         className: String,
         matchPredicate: (targetClass: Class<*>, current: PsiElement) -> Boolean
     ): PsiElement? {
-        return try {
-            val targetClass = Class.forName(className)
-            var current: PsiElement? = element
-            while (current != null) {
-                if (matchPredicate(targetClass, current)) {
-                    return current
-                }
-                current = current.parent
+        val targetClass = getClassCached(className) ?: return null
+        var current: PsiElement? = element
+        while (current != null) {
+            if (matchPredicate(targetClass, current)) {
+                return current
             }
-            null
-        } catch (e: ClassNotFoundException) {
-            null
-        } catch (e: Exception) {
-            null
+            current = current.parent
         }
+        return null
     }
 
     /**
@@ -177,12 +197,7 @@ object PsiReflectionUtils {
      * @return true if the class can be loaded, false otherwise
      */
     fun isClassAvailable(className: String): Boolean {
-        return try {
-            Class.forName(className)
-            true
-        } catch (e: ClassNotFoundException) {
-            false
-        }
+        return getClassCached(className) != null
     }
 
     /**
@@ -196,13 +211,7 @@ object PsiReflectionUtils {
      * @return `true` if the file is an instance of the specified class, `false` otherwise or if the class is not available
      */
     fun isFileOfType(psiFile: PsiFile, className: String): Boolean {
-        return try {
-            val targetClass = Class.forName(className)
-            targetClass.isInstance(psiFile)
-        } catch (e: ClassNotFoundException) {
-            false
-        } catch (e: Exception) {
-            false
-        }
+        val targetClass = getClassCached(className) ?: return false
+        return targetClass.isInstance(psiFile)
     }
 }

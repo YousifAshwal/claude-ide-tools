@@ -379,6 +379,7 @@ class PsiLocatorService {
         }
 
         // Fallback: try to find project by base path
+        if (!virtualFile.isValid) return null
         val filePath = virtualFile.path
         for (project in projectManager.openProjects) {
             if (project.isDisposed) continue

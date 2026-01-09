@@ -1,10 +1,10 @@
 package com.igorlink.claudejetbrainstools.handlers
 
-import com.igorlink.claudejetbrainstools.handlers.languages.*
 import com.igorlink.claudejetbrainstools.model.ExtractMethodRequest
 import com.igorlink.claudejetbrainstools.model.RefactoringResponse
 import com.igorlink.claudejetbrainstools.util.HandlerUtils
 import com.igorlink.claudejetbrainstools.util.LanguageDetector
+import com.igorlink.claudejetbrainstools.util.LanguageHandlerRegistry
 import com.igorlink.claudejetbrainstools.util.RefactoringExecutor
 import com.igorlink.claudejetbrainstools.util.SupportedLanguage
 import com.intellij.codeInsight.CodeInsightUtil
@@ -137,8 +137,8 @@ object ExtractMethodHandler {
     /**
      * Routes the extract method request to the appropriate language-specific handler.
      *
-     * Based on the detected language, delegates to the corresponding handler.
-     * Java is handled directly in this class; other languages use dedicated handlers.
+     * Uses [LanguageHandlerRegistry] for centralized routing to language-specific handlers.
+     * Java is handled directly in this class; other languages are delegated via the registry.
      *
      * @param project The IntelliJ project context
      * @param psiFile The file containing the code to extract
@@ -152,63 +152,30 @@ object ExtractMethodHandler {
         language: SupportedLanguage,
         request: ExtractMethodRequest
     ): RefactoringResponse {
-        return when (language) {
-            SupportedLanguage.JAVA -> {
-                if (psiFile is PsiJavaFile) {
-                    performExtractMethod(project, psiFile, request)
-                } else {
-                    RefactoringResponse(false, "File is not a valid Java file")
-                }
-            }
-
-            SupportedLanguage.KOTLIN -> {
-                if (KotlinExtractMethodHandler.isAvailable()) {
-                    KotlinExtractMethodHandler.extractFromFile(project, psiFile, request)
-                } else {
-                    RefactoringResponse(false, "Kotlin plugin is not available. Install Kotlin plugin to use this feature.")
-                }
-            }
-
-            SupportedLanguage.JAVASCRIPT, SupportedLanguage.TYPESCRIPT -> {
-                if (JavaScriptExtractMethodHandler.isAvailable()) {
-                    JavaScriptExtractMethodHandler.extractFromFile(project, psiFile, request)
-                } else {
-                    RefactoringResponse(false, "JavaScript plugin is not available. Use WebStorm or install JavaScript plugin.")
-                }
-            }
-
-            SupportedLanguage.PYTHON -> {
-                if (PythonExtractMethodHandler.isAvailable()) {
-                    PythonExtractMethodHandler.extractFromFile(project, psiFile, request)
-                } else {
-                    RefactoringResponse(false, "Python plugin is not available. Use PyCharm or install Python plugin.")
-                }
-            }
-
-            SupportedLanguage.GO -> {
-                if (GoExtractMethodHandler.isAvailable()) {
-                    GoExtractMethodHandler.extractFromFile(project, psiFile, request)
-                } else {
-                    RefactoringResponse(false, "Go plugin is not available. Use GoLand or install Go plugin.")
-                }
-            }
-
-            SupportedLanguage.RUST -> {
-                if (RustExtractMethodHandler.isAvailable()) {
-                    RustExtractMethodHandler.extractFromFile(project, psiFile, request)
-                } else {
-                    RefactoringResponse(false, "Rust plugin is not available. Install intellij-rust plugin.")
-                }
-            }
-
-            SupportedLanguage.UNKNOWN -> {
-                RefactoringResponse(
-                    false,
-                    "Unsupported language for extract method refactoring. " +
-                    "Supported: Java, Kotlin, TypeScript, JavaScript, Python, Go, Rust."
-                )
+        // Java is handled directly in this class
+        if (language == SupportedLanguage.JAVA) {
+            return if (psiFile is PsiJavaFile) {
+                performExtractMethod(project, psiFile, request)
+            } else {
+                RefactoringResponse(false, "File is not a valid Java file")
             }
         }
+
+        // Unknown language
+        if (language == SupportedLanguage.UNKNOWN) {
+            return RefactoringResponse(
+                false,
+                "Unsupported language for extract method refactoring. " +
+                "Supported: Java, Kotlin, TypeScript, JavaScript, Python, Go, Rust."
+            )
+        }
+
+        // Delegate to LanguageHandlerRegistry for other languages
+        return LanguageHandlerRegistry.extractMethod(language, project, psiFile, request)
+            ?: RefactoringResponse(
+                false,
+                "No handler registered for language: ${LanguageDetector.getLanguageName(language)}"
+            )
     }
 
     /**
@@ -231,6 +198,39 @@ object ExtractMethodHandler {
         val contextResult = ReadAction.compute<Result<ExtractMethodContext>, Throwable> {
             val document = PsiDocumentManager.getInstance(project).getDocument(psiFile)
                 ?: return@compute Result.failure(IllegalStateException("Cannot get document for file"))
+
+            // Validate line bounds
+            if (request.startLine < 1 || request.startLine > document.lineCount) {
+                return@compute Result.failure(IllegalArgumentException(
+                    "Start line ${request.startLine} is out of bounds (1-${document.lineCount})"
+                ))
+            }
+            if (request.endLine < 1 || request.endLine > document.lineCount) {
+                return@compute Result.failure(IllegalArgumentException(
+                    "End line ${request.endLine} is out of bounds (1-${document.lineCount})"
+                ))
+            }
+            if (request.startLine > request.endLine) {
+                return@compute Result.failure(IllegalArgumentException(
+                    "Start line (${request.startLine}) must be <= end line (${request.endLine})"
+                ))
+            }
+
+            // Validate column bounds
+            val startLineLength = document.getLineEndOffset(request.startLine - 1) -
+                document.getLineStartOffset(request.startLine - 1)
+            if (request.startColumn < 1 || request.startColumn > startLineLength + 1) {
+                return@compute Result.failure(IllegalArgumentException(
+                    "Start column ${request.startColumn} is out of bounds for line ${request.startLine} (1-${startLineLength + 1})"
+                ))
+            }
+            val endLineLength = document.getLineEndOffset(request.endLine - 1) -
+                document.getLineStartOffset(request.endLine - 1)
+            if (request.endColumn < 1 || request.endColumn > endLineLength + 1) {
+                return@compute Result.failure(IllegalArgumentException(
+                    "End column ${request.endColumn} is out of bounds for line ${request.endLine} (1-${endLineLength + 1})"
+                ))
+            }
 
             val startOffset = document.getLineStartOffset(request.startLine - 1) + (request.startColumn - 1)
             val endOffset = document.getLineStartOffset(request.endLine - 1) + (request.endColumn - 1)

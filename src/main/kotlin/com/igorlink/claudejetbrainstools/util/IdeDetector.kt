@@ -91,6 +91,7 @@ enum class JetBrainsIde(
 object IdeDetector {
 
     /** Cached IDE detection result for performance. */
+    @Volatile
     private var cachedIde: JetBrainsIde? = null
 
     /**

@@ -1,10 +1,10 @@
 package com.igorlink.claudejetbrainstools.handlers
 
-import com.igorlink.claudejetbrainstools.handlers.languages.*
 import com.igorlink.claudejetbrainstools.model.MoveRequest
 import com.igorlink.claudejetbrainstools.model.RefactoringResponse
 import com.igorlink.claudejetbrainstools.util.HandlerUtils
 import com.igorlink.claudejetbrainstools.util.LanguageDetector
+import com.igorlink.claudejetbrainstools.util.LanguageHandlerRegistry
 import com.igorlink.claudejetbrainstools.util.RefactoringExecutor
 import com.igorlink.claudejetbrainstools.util.RefactoringTimeouts
 import com.igorlink.claudejetbrainstools.util.SourceRootDetector
@@ -16,7 +16,6 @@ import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiDirectory
-import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.refactoring.move.moveClassesOrPackages.MoveClassesOrPackagesProcessor
@@ -96,13 +95,11 @@ object MoveHandler {
             errorResponseFactory = { message -> RefactoringResponse(false, message) }
         ) { context ->
             // Detect language and route to appropriate handler
-            val psiFile = context.element.containingFile
-            val language = LanguageDetector.detect(psiFile)
+            val language = LanguageDetector.detect(context.element.containingFile)
 
             routeToLanguageHandler(
                 context.project,
                 context.element,
-                psiFile,
                 language,
                 request.targetPackage,
                 request.searchInComments,
@@ -114,13 +111,11 @@ object MoveHandler {
     /**
      * Routes the move request to the appropriate language-specific handler.
      *
-     * Based on the detected language, delegates to the corresponding handler:
-     * - Java: Handled directly in this class
-     * - Kotlin/JS/TS/Python/Go/Rust: Delegated to language-specific handler objects
+     * Uses [LanguageHandlerRegistry] for centralized routing to language-specific handlers.
+     * Java is handled directly in this class; other languages are delegated via the registry.
      *
      * @param project The IntelliJ project context
      * @param element The PSI element to move
-     * @param psiFile The file containing the element
      * @param language The detected programming language
      * @param targetPackage The target package/module path
      * @param searchInComments Whether to also update occurrences in comments
@@ -130,63 +125,32 @@ object MoveHandler {
     private fun routeToLanguageHandler(
         project: Project,
         element: com.intellij.psi.PsiElement,
-        psiFile: PsiFile,
         language: SupportedLanguage,
         targetPackage: String,
         searchInComments: Boolean,
         searchInNonJavaFiles: Boolean
     ): RefactoringResponse {
-        return when (language) {
-            SupportedLanguage.JAVA -> handleJavaMove(project, element, targetPackage, searchInComments, searchInNonJavaFiles)
-
-            SupportedLanguage.KOTLIN -> {
-                if (KotlinMoveHandler.isAvailable()) {
-                    KotlinMoveHandler.move(project, element, targetPackage, searchInComments, searchInNonJavaFiles)
-                } else {
-                    RefactoringResponse(false, "Kotlin plugin is not available. Install Kotlin plugin to use this feature.")
-                }
-            }
-
-            SupportedLanguage.JAVASCRIPT, SupportedLanguage.TYPESCRIPT -> {
-                if (JavaScriptMoveHandler.isAvailable()) {
-                    JavaScriptMoveHandler.move(project, element, targetPackage, searchInComments, searchInNonJavaFiles)
-                } else {
-                    RefactoringResponse(false, "JavaScript plugin is not available. Use WebStorm or install JavaScript plugin.")
-                }
-            }
-
-            SupportedLanguage.PYTHON -> {
-                if (PythonMoveHandler.isAvailable()) {
-                    PythonMoveHandler.move(project, element, targetPackage, searchInComments, searchInNonJavaFiles)
-                } else {
-                    RefactoringResponse(false, "Python plugin is not available. Use PyCharm or install Python plugin.")
-                }
-            }
-
-            SupportedLanguage.GO -> {
-                if (GoMoveHandler.isAvailable()) {
-                    GoMoveHandler.move(project, element, targetPackage, searchInComments, searchInNonJavaFiles)
-                } else {
-                    RefactoringResponse(false, "Go plugin is not available. Use GoLand or install Go plugin.")
-                }
-            }
-
-            SupportedLanguage.RUST -> {
-                if (RustMoveHandler.isAvailable()) {
-                    RustMoveHandler.move(project, element, targetPackage, searchInComments, searchInNonJavaFiles)
-                } else {
-                    RefactoringResponse(false, "Rust plugin is not available. Install intellij-rust plugin.")
-                }
-            }
-
-            SupportedLanguage.UNKNOWN -> {
-                RefactoringResponse(
-                    false,
-                    "Unsupported language for move refactoring. " +
-                    "Supported: Java, Kotlin, TypeScript, JavaScript, Python, Go, Rust."
-                )
-            }
+        // Java is handled directly in this class
+        if (language == SupportedLanguage.JAVA) {
+            return handleJavaMove(project, element, targetPackage, searchInComments, searchInNonJavaFiles)
         }
+
+        // Unknown language
+        if (language == SupportedLanguage.UNKNOWN) {
+            return RefactoringResponse(
+                false,
+                "Unsupported language for move refactoring. " +
+                "Supported: Java, Kotlin, TypeScript, JavaScript, Python, Go, Rust."
+            )
+        }
+
+        // Delegate to LanguageHandlerRegistry for other languages
+        return LanguageHandlerRegistry.move(
+            language, project, element, targetPackage, searchInComments, searchInNonJavaFiles
+        ) ?: RefactoringResponse(
+            false,
+            "No handler registered for language: ${LanguageDetector.getLanguageName(language)}"
+        )
     }
 
     /**

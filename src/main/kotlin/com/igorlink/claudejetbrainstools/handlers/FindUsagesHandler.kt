@@ -82,7 +82,7 @@ object FindUsagesHandler {
                     val references = ReferencesSearch.search(context.element).findAll()
 
                     for (ref in references) {
-                        val refElement = ref.element
+                        val refElement = ref.element ?: continue
                         val psiFile = refElement.containingFile ?: continue
                         val virtualFile = psiFile.virtualFile ?: continue
 
