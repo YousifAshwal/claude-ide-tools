@@ -58,7 +58,8 @@ data class StatusResponse(
     val port: Int = 8765,
     val openProjects: List<ProjectInfo> = emptyList(),
     val indexingInProgress: Boolean = false,
-    val languagePlugins: Map<String, Boolean> = emptyMap()
+    val languagePlugins: Map<String, Boolean> = emptyMap(),
+    val implementedTools: Map<String, List<String>> = emptyMap()
 )
 
 /**

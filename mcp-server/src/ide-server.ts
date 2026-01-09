@@ -138,6 +138,64 @@ type ToolResponse = {
 };
 
 /**
+ * Result of a status check to the IDE.
+ *
+ * @typedef {Object} StatusResult
+ * @property {boolean} ok - Whether the IDE is running
+ * @property {string} ideType - The IDE type (e.g., "IntelliJ IDEA")
+ * @property {Record<string, string[]>} [implementedTools] - Map of tool names to supported languages
+ */
+type StatusResult = {
+  ok: boolean;
+  ideType: string;
+  implementedTools?: Record<string, string[]>;
+};
+
+/**
+ * Cache for implemented tools, populated on first status check.
+ * Maps tool names (e.g., "move", "extract_method") to supported languages.
+ */
+let implementedToolsCache: Record<string, string[]> | null = null;
+
+/**
+ * Fetches the list of implemented tools from the IDE.
+ *
+ * Queries the /status endpoint and caches the result for subsequent calls.
+ * If the IDE is not available, returns an empty object (no tools).
+ *
+ * @returns {Promise<Record<string, string[]>>} Map of tool names to supported languages
+ */
+async function getImplementedTools(): Promise<Record<string, string[]>> {
+  if (implementedToolsCache !== null) {
+    return implementedToolsCache;
+  }
+
+  try {
+    const status = await callIde<StatusResult>("/status");
+    implementedToolsCache = status.implementedTools || {};
+    return implementedToolsCache;
+  } catch {
+    // IDE not available, return empty (no tools will be registered)
+    implementedToolsCache = {};
+    return implementedToolsCache;
+  }
+}
+
+/**
+ * Checks if a tool should be registered based on implementation status.
+ *
+ * A tool is registered if it has at least one implemented language.
+ *
+ * @param {string} toolName - The tool name (e.g., "move", "extract_method")
+ * @param {Record<string, string[]>} implementedTools - Map of implemented tools
+ * @returns {boolean} True if the tool should be registered
+ */
+function isToolImplemented(toolName: string, implementedTools: Record<string, string[]>): boolean {
+  const languages = implementedTools[toolName];
+  return Array.isArray(languages) && languages.length > 0;
+}
+
+/**
  * Builds a ToolResponse from a RefactoringResult.
  *
  * Formats the refactoring result into a standard MCP tool response,
@@ -432,54 +490,71 @@ const server = new Server(
 );
 
 /**
+ * Tool definition for the move refactoring operation.
+ */
+const moveToolDef = {
+  name: `${TOOL_PREFIX}_move`,
+  title: "Move Symbol",
+  description: getMoveDescription(),
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      file: { type: "string", description: "Absolute path to the file containing the symbol" },
+      line: { type: "number", description: "Line number (1-based)" },
+      column: { type: "number", description: "Column number (1-based)" },
+      targetPackage: { type: "string", description: "Target package/module path" },
+      searchInComments: { type: "boolean", description: "Also update occurrences in comments (default: false)" },
+      searchInNonJavaFiles: { type: "boolean", description: "Also update occurrences in non-Java files like XML, properties (default: false)" },
+    },
+    required: ["file", "line", "column", "targetPackage"],
+  },
+};
+
+/**
+ * Tool definition for the extract method refactoring operation.
+ */
+const extractMethodToolDef = {
+  name: `${TOOL_PREFIX}_extract_method`,
+  title: "Extract Method",
+  description: getExtractMethodDescription(),
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      file: { type: "string", description: "Absolute path to the source file" },
+      startLine: { type: "number", description: "Start line (1-based)" },
+      startColumn: { type: "number", description: "Start column (1-based)" },
+      endLine: { type: "number", description: "End line (1-based)" },
+      endColumn: { type: "number", description: "End column (1-based)" },
+      methodName: { type: "string", description: "Name for the new method/function" },
+    },
+    required: ["file", "startLine", "startColumn", "endLine", "endColumn", "methodName"],
+  },
+};
+
+/**
  * Handler for listing available tools.
  *
- * Returns the list of IDE-specific tools:
- * - {prefix}_move: Move class/symbol to different package/module
- * - {prefix}_extract_method: Extract code block into a new method
+ * Returns only tools that are actually implemented for the current IDE.
+ * Tools are filtered based on the implementedTools field from /status.
+ * If the IDE is not available, returns an empty tools list.
  *
  * Tool names are prefixed with the IDE name (e.g., idea_move, webstorm_move).
  * Descriptions are customized based on the IDE's language specialization.
  */
 server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return {
-    tools: [
-      {
-        name: `${TOOL_PREFIX}_move`,
-        title: "Move Symbol",
-        description: getMoveDescription(),
-        inputSchema: {
-          type: "object",
-          properties: {
-            file: { type: "string", description: "Absolute path to the file containing the symbol" },
-            line: { type: "number", description: "Line number (1-based)" },
-            column: { type: "number", description: "Column number (1-based)" },
-            targetPackage: { type: "string", description: "Target package/module path" },
-            searchInComments: { type: "boolean", description: "Also update occurrences in comments (default: false)" },
-            searchInNonJavaFiles: { type: "boolean", description: "Also update occurrences in non-Java files like XML, properties (default: false)" },
-          },
-          required: ["file", "line", "column", "targetPackage"],
-        },
-      },
-      {
-        name: `${TOOL_PREFIX}_extract_method`,
-        title: "Extract Method",
-        description: getExtractMethodDescription(),
-        inputSchema: {
-          type: "object",
-          properties: {
-            file: { type: "string", description: "Absolute path to the source file" },
-            startLine: { type: "number", description: "Start line (1-based)" },
-            startColumn: { type: "number", description: "Start column (1-based)" },
-            endLine: { type: "number", description: "End line (1-based)" },
-            endColumn: { type: "number", description: "End column (1-based)" },
-            methodName: { type: "string", description: "Name for the new method/function" },
-          },
-          required: ["file", "startLine", "startColumn", "endLine", "endColumn", "methodName"],
-        },
-      },
-    ],
-  };
+  const implementedTools = await getImplementedTools();
+  const tools = [];
+
+  // Only register tools that have at least one implemented language
+  if (isToolImplemented("move", implementedTools)) {
+    tools.push(moveToolDef);
+  }
+
+  if (isToolImplemented("extract_method", implementedTools)) {
+    tools.push(extractMethodToolDef);
+  }
+
+  return { tools };
 });
 
 /**

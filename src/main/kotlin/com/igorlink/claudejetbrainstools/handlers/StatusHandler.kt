@@ -65,6 +65,21 @@ object StatusHandler {
             "Rust" to LanguageDetector.isLanguageSupported(SupportedLanguage.RUST)
         )
 
+        // Report which tools are actually implemented (not stubs)
+        // - move: Java always, Kotlin if plugin available
+        // - extract_method: Java only (others require editor context)
+        val implementedTools = buildMap {
+            // Move is implemented for Java and Kotlin
+            val moveLanguages = mutableListOf("Java")
+            if (languagePlugins["Kotlin"] == true) {
+                moveLanguages.add("Kotlin")
+            }
+            put("move", moveLanguages.toList())
+
+            // Extract method is only implemented for Java
+            put("extract_method", listOf("Java"))
+        }
+
         // Get project info with paths
         val projectInfos = projects
             .filter { !it.isDisposed }
@@ -82,7 +97,8 @@ object StatusHandler {
             port = ide.port,
             openProjects = projectInfos,
             indexingInProgress = indexingInProgress,
-            languagePlugins = languagePlugins
+            languagePlugins = languagePlugins,
+            implementedTools = implementedTools
         )
     }
 }

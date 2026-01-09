@@ -13706,6 +13706,24 @@ var IDE_NAME = process.argv[3] || "idea";
 var HOST = "127.0.0.1";
 var BASE_URL = `http://${HOST}:${PORT}`;
 var TOOL_PREFIX = IDE_NAME.toLowerCase().replace(/-/g, "_");
+var implementedToolsCache = null;
+async function getImplementedTools() {
+  if (implementedToolsCache !== null) {
+    return implementedToolsCache;
+  }
+  try {
+    const status = await callIde("/status");
+    implementedToolsCache = status.implementedTools || {};
+    return implementedToolsCache;
+  } catch {
+    implementedToolsCache = {};
+    return implementedToolsCache;
+  }
+}
+function isToolImplemented(toolName, implementedTools) {
+  const languages = implementedTools[toolName];
+  return Array.isArray(languages) && languages.length > 0;
+}
 function buildRefactoringResponse(result, operationName) {
   return {
     content: [{
@@ -13881,45 +13899,50 @@ var server = new Server({
     tools: {}
   }
 });
+var moveToolDef = {
+  name: `${TOOL_PREFIX}_move`,
+  title: "Move Symbol",
+  description: getMoveDescription(),
+  inputSchema: {
+    type: "object",
+    properties: {
+      file: { type: "string", description: "Absolute path to the file containing the symbol" },
+      line: { type: "number", description: "Line number (1-based)" },
+      column: { type: "number", description: "Column number (1-based)" },
+      targetPackage: { type: "string", description: "Target package/module path" },
+      searchInComments: { type: "boolean", description: "Also update occurrences in comments (default: false)" },
+      searchInNonJavaFiles: { type: "boolean", description: "Also update occurrences in non-Java files like XML, properties (default: false)" }
+    },
+    required: ["file", "line", "column", "targetPackage"]
+  }
+};
+var extractMethodToolDef = {
+  name: `${TOOL_PREFIX}_extract_method`,
+  title: "Extract Method",
+  description: getExtractMethodDescription(),
+  inputSchema: {
+    type: "object",
+    properties: {
+      file: { type: "string", description: "Absolute path to the source file" },
+      startLine: { type: "number", description: "Start line (1-based)" },
+      startColumn: { type: "number", description: "Start column (1-based)" },
+      endLine: { type: "number", description: "End line (1-based)" },
+      endColumn: { type: "number", description: "End column (1-based)" },
+      methodName: { type: "string", description: "Name for the new method/function" }
+    },
+    required: ["file", "startLine", "startColumn", "endLine", "endColumn", "methodName"]
+  }
+};
 server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return {
-    tools: [
-      {
-        name: `${TOOL_PREFIX}_move`,
-        title: "Move Symbol",
-        description: getMoveDescription(),
-        inputSchema: {
-          type: "object",
-          properties: {
-            file: { type: "string", description: "Absolute path to the file containing the symbol" },
-            line: { type: "number", description: "Line number (1-based)" },
-            column: { type: "number", description: "Column number (1-based)" },
-            targetPackage: { type: "string", description: "Target package/module path" },
-            searchInComments: { type: "boolean", description: "Also update occurrences in comments (default: false)" },
-            searchInNonJavaFiles: { type: "boolean", description: "Also update occurrences in non-Java files like XML, properties (default: false)" }
-          },
-          required: ["file", "line", "column", "targetPackage"]
-        }
-      },
-      {
-        name: `${TOOL_PREFIX}_extract_method`,
-        title: "Extract Method",
-        description: getExtractMethodDescription(),
-        inputSchema: {
-          type: "object",
-          properties: {
-            file: { type: "string", description: "Absolute path to the source file" },
-            startLine: { type: "number", description: "Start line (1-based)" },
-            startColumn: { type: "number", description: "Start column (1-based)" },
-            endLine: { type: "number", description: "End line (1-based)" },
-            endColumn: { type: "number", description: "End column (1-based)" },
-            methodName: { type: "string", description: "Name for the new method/function" }
-          },
-          required: ["file", "startLine", "startColumn", "endLine", "endColumn", "methodName"]
-        }
-      }
-    ]
-  };
+  const implementedTools = await getImplementedTools();
+  const tools = [];
+  if (isToolImplemented("move", implementedTools)) {
+    tools.push(moveToolDef);
+  }
+  if (isToolImplemented("extract_method", implementedTools)) {
+    tools.push(extractMethodToolDef);
+  }
+  return { tools };
 });
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
