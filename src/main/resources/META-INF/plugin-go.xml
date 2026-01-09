@@ -1,0 +1,4 @@
+<idea-plugin>
+    <!-- Go language support extensions -->
+    <!-- Services and handlers for Go refactoring are loaded when Go plugin is available -->
+</idea-plugin>

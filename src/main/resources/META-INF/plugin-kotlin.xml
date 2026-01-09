@@ -1,0 +1,4 @@
+<idea-plugin>
+    <!-- Kotlin language support extensions -->
+    <!-- Services and handlers for Kotlin refactoring are loaded when Kotlin plugin is available -->
+</idea-plugin>

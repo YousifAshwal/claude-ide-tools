@@ -1,0 +1,4 @@
+<idea-plugin>
+    <!-- Python language support extensions -->
+    <!-- Services and handlers for Python refactoring are loaded when Python plugin is available -->
+</idea-plugin>

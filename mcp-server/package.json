@@ -1,0 +1,26 @@
+{
+  "name": "claude-jetbrains-tools-server",
+  "version": "0.3.0",
+  "type": "module",
+  "main": "dist/common-server.js",
+  "scripts": {
+    "build": "tsc && npm run bundle",
+    "bundle": "npm run bundle:common && npm run bundle:ide",
+    "bundle:common": "esbuild dist/common-server.js --bundle --platform=node --target=node18 --outfile=dist/common-server.cjs --format=cjs",
+    "bundle:ide": "esbuild dist/ide-server.js --bundle --platform=node --target=node18 --outfile=dist/ide-server.cjs --format=cjs",
+    "start": "node dist/common-server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "esbuild": "^0.27.2",
+    "typescript": "^5.3.0",
+    "vitest": "^2.1.0",
+    "@vitest/coverage-v8": "^2.1.0"
+  }
+}

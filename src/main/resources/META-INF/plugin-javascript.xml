@@ -1,0 +1,4 @@
+<idea-plugin>
+    <!-- JavaScript/TypeScript language support extensions -->
+    <!-- Services and handlers for JS/TS refactoring are loaded when JavaScript plugin is available -->
+</idea-plugin>

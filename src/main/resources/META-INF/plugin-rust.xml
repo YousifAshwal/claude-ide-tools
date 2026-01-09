@@ -1,0 +1,4 @@
+<idea-plugin>
+    <!-- Rust language support extensions -->
+    <!-- Services and handlers for Rust refactoring are loaded when Rust plugin is available -->
+</idea-plugin>

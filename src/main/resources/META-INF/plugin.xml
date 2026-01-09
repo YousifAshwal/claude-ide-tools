@@ -1,0 +1,50 @@
+<idea-plugin>
+    <id>com.igorlink.claudejetbrainstools</id>
+    <name>Claude JetBrains Tools</name>
+    <vendor>Igor Link</vendor>
+    <description><![CDATA[
+        Exposes JetBrains IDE refactoring API via HTTP for Claude Code integration.
+        <br/><br/>
+        Features:
+        <ul>
+            <li>Rename refactoring (classes, methods, variables)</li>
+            <li>Find usages across project</li>
+            <li>Move class/package</li>
+            <li>Extract method</li>
+        </ul>
+        <br/>
+        HTTP server runs on localhost:8765 when IDE starts.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.lang</depends>
+    <depends>com.intellij.java</depends>
+
+    <!-- Optional language support -->
+    <depends optional="true" config-file="plugin-kotlin.xml">org.jetbrains.kotlin</depends>
+    <depends optional="true" config-file="plugin-javascript.xml">JavaScript</depends>
+    <depends optional="true" config-file="plugin-python.xml">com.intellij.modules.python</depends>
+    <depends optional="true" config-file="plugin-go.xml">org.jetbrains.plugins.go</depends>
+    <depends optional="true" config-file="plugin-rust.xml">org.rust.lang</depends>
+
+    <applicationListeners>
+        <listener
+            class="com.igorlink.claudejetbrainstools.McpPluginStartup"
+            topic="com.intellij.ide.AppLifecycleListener"/>
+        <listener
+            class="com.igorlink.claudejetbrainstools.McpPluginUnloadListener"
+            topic="com.intellij.ide.plugins.DynamicPluginListener"/>
+    </applicationListeners>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <applicationService
+            serviceImplementation="com.igorlink.claudejetbrainstools.services.McpHttpServerService"/>
+        <applicationService
+            serviceImplementation="com.igorlink.claudejetbrainstools.services.PsiLocatorService"/>
+        <applicationService
+            serviceImplementation="com.igorlink.claudejetbrainstools.services.McpAutoRegistrationService"/>
+        <notificationGroup
+            id="Claude JetBrains Tools"
+            displayType="BALLOON"/>
+    </extensions>
+</idea-plugin>
