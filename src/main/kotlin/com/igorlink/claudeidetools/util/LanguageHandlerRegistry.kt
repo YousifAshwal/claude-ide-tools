@@ -1,5 +1,6 @@
 package com.igorlink.claudeidetools.util
 
+import com.igorlink.claudeidetools.extensions.RefactoringExtensionService
 import com.igorlink.claudeidetools.handlers.languages.*
 import com.igorlink.claudeidetools.model.ExtractMethodRequest
 import com.igorlink.claudeidetools.model.RefactoringResponse
@@ -10,23 +11,29 @@ import com.intellij.psi.PsiFile
 /**
  * Centralized registry for language-specific refactoring handlers.
  *
- * This registry eliminates duplicated routing logic by providing a single place
- * to register and lookup language-specific handlers for both move and extract method
- * operations. It handles plugin availability checks and provides uniform error messages.
+ * This registry provides a unified API for accessing language-specific handlers.
+ * It uses a hybrid approach:
+ * 1. First queries extension points via [RefactoringExtensionService] (preferred)
+ * 2. Falls back to legacy adapters for backward compatibility
  *
- * ## Design Principles
- * - Single Responsibility: Each handler focuses on its language-specific logic
- * - Open/Closed: New languages can be added by implementing handler interfaces and registering them
- * - Dependency Inversion: Handlers depend on abstractions, not concrete implementations
+ * ## Architecture
+ * The registry now prioritizes IntelliJ's extension point system:
+ * - Handlers implement [com.igorlink.claudeidetools.extensions.MoveRefactoringExtension]
+ *   or [com.igorlink.claudeidetools.extensions.ExtractMethodRefactoringExtension]
+ * - Handlers are registered in plugin-{lang}.xml files
+ * - Handlers are discovered at runtime, avoiding ClassNotFoundException
+ *
+ * Legacy adapters are kept for backward compatibility during migration.
  *
  * ## Extensibility
  * To add support for a new language:
- * 1. Add the language to [SupportedLanguage] enum
- * 2. Create language-specific handlers implementing [MoveHandlerContract] and [ExtractMethodHandlerContract]
- * 3. Register the handlers in this registry
+ * 1. Add the language to [SupportedLanguage] enum if not already present
+ * 2. Create handlers implementing the extension point interfaces
+ * 3. Register handlers in the appropriate plugin-{lang}.xml file
  *
- * @see MoveHandlerContract Contract for move refactoring handlers
- * @see ExtractMethodHandlerContract Contract for extract method handlers
+ * @see RefactoringExtensionService Service that discovers handlers via extension points
+ * @see com.igorlink.claudeidetools.extensions.MoveRefactoringExtension Move handler interface
+ * @see com.igorlink.claudeidetools.extensions.ExtractMethodRefactoringExtension Extract method handler interface
  * @see PluginAvailability Plugin availability checking
  */
 object LanguageHandlerRegistry {
@@ -94,6 +101,7 @@ object LanguageHandlerRegistry {
      * Maps each language to its appropriate error message.
      */
     private val pluginNotAvailableMessages: Map<SupportedLanguage, String> = mapOf(
+        SupportedLanguage.JAVA to "Java plugin is not available. Use IntelliJ IDEA or install Java plugin.",
         SupportedLanguage.KOTLIN to "Kotlin plugin is not available. Install Kotlin plugin to use this feature.",
         SupportedLanguage.JAVASCRIPT to "JavaScript plugin is not available. Use WebStorm or install JavaScript plugin.",
         SupportedLanguage.TYPESCRIPT to "JavaScript plugin is not available. Use WebStorm or install JavaScript plugin.",
@@ -118,9 +126,10 @@ object LanguageHandlerRegistry {
 
     /**
      * Registry of move handlers by language.
-     * Java is handled specially in the main handler, so not included here.
+     * All languages including Java are now routed through this registry.
      */
     private val moveHandlers: Map<SupportedLanguage, MoveHandlerEntry> = mapOf(
+        SupportedLanguage.JAVA to MoveHandlerEntry(JavaMoveHandlerAdapter),
         SupportedLanguage.KOTLIN to MoveHandlerEntry(KotlinMoveHandlerAdapter),
         SupportedLanguage.JAVASCRIPT to MoveHandlerEntry(JavaScriptMoveHandlerAdapter),
         SupportedLanguage.TYPESCRIPT to MoveHandlerEntry(JavaScriptMoveHandlerAdapter),
@@ -131,9 +140,10 @@ object LanguageHandlerRegistry {
 
     /**
      * Registry of extract method handlers by language.
-     * Java is handled specially in the main handler, so not included here.
+     * All languages including Java are now routed through this registry.
      */
     private val extractMethodHandlers: Map<SupportedLanguage, ExtractMethodHandlerEntry> = mapOf(
+        SupportedLanguage.JAVA to ExtractMethodHandlerEntry(JavaExtractMethodHandlerAdapter),
         SupportedLanguage.KOTLIN to ExtractMethodHandlerEntry(KotlinExtractMethodHandlerAdapter),
         SupportedLanguage.JAVASCRIPT to ExtractMethodHandlerEntry(JavaScriptExtractMethodHandlerAdapter),
         SupportedLanguage.TYPESCRIPT to ExtractMethodHandlerEntry(JavaScriptExtractMethodHandlerAdapter),
@@ -144,6 +154,10 @@ object LanguageHandlerRegistry {
 
     /**
      * Routes a move refactoring request to the appropriate language-specific handler.
+     *
+     * Uses a hybrid approach:
+     * 1. First tries extension points (preferred for avoiding ClassNotFoundException)
+     * 2. Falls back to legacy adapters for backward compatibility
      *
      * Checks plugin availability before invoking the handler and returns
      * a uniform error message if the plugin is not installed.
@@ -164,7 +178,34 @@ object LanguageHandlerRegistry {
         searchInComments: Boolean,
         searchInNonJavaFiles: Boolean
     ): RefactoringResponse? {
-        val entry = moveHandlers[language] ?: return null
+        // Unknown language is never supported
+        if (language == SupportedLanguage.UNKNOWN) {
+            return null
+        }
+
+        // Try extension points first (preferred approach)
+        val extensionHandler = RefactoringExtensionService.getInstance().findMoveHandler(language)
+        if (extensionHandler != null) {
+            if (!extensionHandler.canHandle(element)) {
+                return RefactoringResponse(
+                    false,
+                    "Cannot move this element type. Check that the element is a movable declaration."
+                )
+            }
+            return extensionHandler.move(project, element, targetPackage, searchInComments, searchInNonJavaFiles)
+        }
+
+        // Fall back to legacy adapters
+        val entry = moveHandlers[language] ?: run {
+            // Check if plugin is available - if not, return specific message
+            if (!PluginAvailability.isAvailable(language)) {
+                return RefactoringResponse(
+                    false,
+                    pluginNotAvailableMessages[language] ?: "Plugin for $language is not available."
+                )
+            }
+            return null
+        }
 
         if (!entry.handler.isAvailable()) {
             return RefactoringResponse(
@@ -178,6 +219,10 @@ object LanguageHandlerRegistry {
 
     /**
      * Routes an extract method refactoring request to the appropriate language-specific handler.
+     *
+     * Uses a hybrid approach:
+     * 1. First tries extension points (preferred for avoiding ClassNotFoundException)
+     * 2. Falls back to legacy adapters for backward compatibility
      *
      * Checks plugin availability before invoking the handler and returns
      * a uniform error message if the plugin is not installed.
@@ -194,7 +239,34 @@ object LanguageHandlerRegistry {
         psiFile: PsiFile,
         request: ExtractMethodRequest
     ): RefactoringResponse? {
-        val entry = extractMethodHandlers[language] ?: return null
+        // Unknown language is never supported
+        if (language == SupportedLanguage.UNKNOWN) {
+            return null
+        }
+
+        // Try extension points first (preferred approach)
+        val extensionHandler = RefactoringExtensionService.getInstance().findExtractMethodHandler(language)
+        if (extensionHandler != null) {
+            if (!extensionHandler.canHandle(psiFile)) {
+                return RefactoringResponse(
+                    false,
+                    "Cannot extract method from this file type."
+                )
+            }
+            return extensionHandler.extractFromFile(project, psiFile, request)
+        }
+
+        // Fall back to legacy adapters
+        val entry = extractMethodHandlers[language] ?: run {
+            // Check if plugin is available - if not, return specific message
+            if (!PluginAvailability.isAvailable(language)) {
+                return RefactoringResponse(
+                    false,
+                    pluginNotAvailableMessages[language] ?: "Plugin for $language is not available."
+                )
+            }
+            return null
+        }
 
         if (!entry.handler.isAvailable()) {
             return RefactoringResponse(
@@ -209,11 +281,27 @@ object LanguageHandlerRegistry {
     /**
      * Checks if a handler is registered for the given language and operation type.
      *
+     * Checks both extension points and legacy adapters.
+     *
      * @param language The language to check
      * @param operationType The type of operation ("move" or "extractMethod")
      * @return true if a handler is registered
      */
     fun hasHandler(language: SupportedLanguage, operationType: String): Boolean {
+        val service = RefactoringExtensionService.getInstance()
+
+        // Check extension points first
+        val hasExtensionHandler = when (operationType) {
+            "move" -> service.findMoveHandler(language) != null
+            "extractMethod" -> service.findExtractMethodHandler(language) != null
+            else -> false
+        }
+
+        if (hasExtensionHandler) {
+            return true
+        }
+
+        // Check legacy adapters
         return when (operationType) {
             "move" -> moveHandlers.containsKey(language)
             "extractMethod" -> extractMethodHandlers.containsKey(language)
@@ -224,20 +312,58 @@ object LanguageHandlerRegistry {
     /**
      * Returns the list of supported languages for a given operation type.
      *
+     * Combines languages from extension points and legacy adapters.
+     *
      * @param operationType The type of operation ("move" or "extractMethod")
-     * @return Set of supported languages (always includes JAVA which is handled specially)
+     * @return Set of supported languages
      */
     fun getSupportedLanguages(operationType: String): Set<SupportedLanguage> {
-        val registered = when (operationType) {
+        val service = RefactoringExtensionService.getInstance()
+
+        // Get languages from extension points
+        val extensionLanguages = when (operationType) {
+            "move" -> service.getAvailableMoveLanguages()
+            "extractMethod" -> service.getAvailableExtractMethodLanguages()
+            else -> emptySet()
+        }
+
+        // Get languages from legacy adapters
+        val legacyLanguages = when (operationType) {
             "move" -> moveHandlers.keys
             "extractMethod" -> extractMethodHandlers.keys
             else -> emptySet()
         }
-        // Java is always supported (handled in main handlers)
-        return registered + SupportedLanguage.JAVA
+
+        return extensionLanguages + legacyLanguages
     }
 
     // ========== Adapters for existing handlers ==========
+
+    /**
+     * Adapter for JavaMoveHandler to implement MoveHandlerContract.
+     */
+    private object JavaMoveHandlerAdapter : MoveHandlerContract {
+        override fun isAvailable(): Boolean = JavaMoveHandler.isAvailable()
+        override fun move(
+            project: Project,
+            element: PsiElement,
+            targetPackage: String,
+            searchInComments: Boolean,
+            searchInNonJavaFiles: Boolean
+        ): RefactoringResponse = JavaMoveHandler.move(project, element, targetPackage, searchInComments, searchInNonJavaFiles)
+    }
+
+    /**
+     * Adapter for JavaExtractMethodHandler to implement ExtractMethodHandlerContract.
+     */
+    private object JavaExtractMethodHandlerAdapter : ExtractMethodHandlerContract {
+        override fun isAvailable(): Boolean = JavaExtractMethodHandler.isAvailable()
+        override fun extractFromFile(
+            project: Project,
+            psiFile: PsiFile,
+            request: ExtractMethodRequest
+        ): RefactoringResponse = JavaExtractMethodHandler.extractFromFile(project, psiFile, request)
+    }
 
     /**
      * Adapter for KotlinMoveHandler to implement MoveHandlerContract.

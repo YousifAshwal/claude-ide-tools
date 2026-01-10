@@ -45,7 +45,7 @@ The plugin uses a **dual MCP server architecture** to provide optimal tool routi
 │                               MCP Servers (Node.js)                                  │
 │  ┌──────────────────────────────────────┐  ┌──────────────────────────────────────┐  │
 │  │   Common Server                      │  │   IDE-Specific Servers               │  │
-│  │   (claude-ide-tools)              │  │   (claude-{ide}-tools)                  │  │
+│  │   (claude-ide-tools)                 │  │(claude-{ide}-tools)                  │  │
 │  │                                      │  │                                      │  │
 │  │   Tools:                             │  │   Tools (per IDE):                   │  │
 │  │   - status (all IDEs)                │  │   - {ide}_move                       │  │
@@ -324,26 +324,71 @@ The project uses GitHub Actions for continuous integration and deployment.
 
 ### Automated Builds
 
-Every push to `master`/`main` and every pull request triggers:
+Every push to any branch and every pull request triggers:
 - MCP server build (`npm ci` + `npm run build`)
 - Plugin build (`./gradlew buildPlugin`)
 - Test execution (`./gradlew test`)
-- Plugin verification (`./gradlew verifyPlugin`)
 
-### Publishing to JetBrains Marketplace
+### Release Process
 
-Releases are triggered by pushing a version tag:
+The project follows a branching model with `dev` for development and `master` for releases.
+
+#### 1. Development on `dev` branch
 
 ```bash
-# Create and push a version tag
-git tag v0.3.10
-git push origin v0.3.10
+git checkout dev
+# Make changes...
+git add .
+git commit -m "Description of changes"
+git push origin dev
 ```
 
-This will:
-1. Build and verify the plugin
-2. Publish to JetBrains Marketplace
-3. Create a GitHub Release with the plugin zip attached
+#### 2. Update CHANGELOG.md
+
+Before releasing, add your changes to `CHANGELOG.md`:
+
+```markdown
+## [0.3.17] - 2025-01-11
+
+### Added
+- New feature description
+
+### Fixed
+- Bug fix description
+
+### Changed
+- Change description
+```
+
+The changelog follows [Keep a Changelog](https://keepachangelog.com/) format.
+
+#### 3. Update version in build.gradle.kts
+
+```kotlin
+version = "0.3.17"
+```
+
+#### 4. Create Pull Request
+
+On GitHub, create a PR: `dev` → `master`
+
+#### 5. After merge, create a version tag
+
+```bash
+git checkout master
+git pull
+git tag v0.3.17
+git push origin v0.3.17
+```
+
+#### 6. Automatic Release
+
+The tag push triggers the release workflow which:
+1. Verifies the tag is on `master` branch
+2. Builds and verifies the plugin
+3. Extracts changelog for the version from `CHANGELOG.md`
+4. Publishes to **JetBrains Marketplace** (with changelog)
+5. Creates **GitHub Release** (with changelog and plugin zip attached)
 
 ### Setup Requirements
 

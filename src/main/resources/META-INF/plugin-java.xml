@@ -1,4 +1,21 @@
 <idea-plugin>
-    <!-- Java-specific extensions are registered when Java plugin is available -->
-    <!-- Java language support is handled dynamically by LanguageDetector -->
+    <!--
+    Java-specific extension points are intentionally NOT registered here.
+
+    Design Decision: Java handlers (JavaMoveHandler, JavaExtractMethodHandler) use
+    direct imports for Java-specific classes rather than reflection. This provides:
+    1. Compile-time type safety and IDE support
+    2. Better performance (no reflection overhead)
+    3. Cleaner code that's easier to maintain
+
+    The handlers are registered as legacy adapters in LanguageHandlerRegistry.kt
+    and are protected by the optional dependency declaration in plugin.xml:
+    <depends optional="true" config-file="plugin-java.xml">com.intellij.java</depends>
+
+    This means the ClassLoader will only load JavaMoveHandler/JavaExtractMethodHandler
+    when the Java plugin is available, preventing ClassNotFoundException in WebStorm/PhpStorm.
+
+    Extension points are used for other languages (Kotlin, Python, etc.) that require
+    reflection-based access to avoid compile-time dependencies on optional plugins.
+    -->
 </idea-plugin>

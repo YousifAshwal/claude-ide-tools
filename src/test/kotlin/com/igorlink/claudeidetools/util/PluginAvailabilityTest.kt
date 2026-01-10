@@ -49,11 +49,26 @@ class PluginAvailabilityTest {
     inner class IsAvailableTests {
 
         @Test
-        fun `isAvailable returns true for JAVA without checking class (always available)`() {
-            // JAVA is always available in IntelliJ-based IDEs - no class loading needed
+        fun `isAvailable returns true for JAVA when plugin class exists`() {
+            // JAVA is now an optional plugin - requires class loading check
+            every { mockClassLoadingStrategy.loadClass("com.intellij.psi.PsiJavaFile") } returns Any::class.java
+            PluginAvailability.setClassLoadingStrategy(mockClassLoadingStrategy)
+
             val result = PluginAvailability.isAvailable(SupportedLanguage.JAVA)
 
-            assertTrue(result, "JAVA should always be available")
+            assertTrue(result, "JAVA should be available when plugin class exists")
+            verify { mockClassLoadingStrategy.loadClass("com.intellij.psi.PsiJavaFile") }
+        }
+
+        @Test
+        fun `isAvailable returns false for JAVA when plugin class is missing`() {
+            // JAVA is optional in WebStorm/PhpStorm - can return false
+            every { mockClassLoadingStrategy.loadClass("com.intellij.psi.PsiJavaFile") } throws ClassNotFoundException()
+            PluginAvailability.setClassLoadingStrategy(mockClassLoadingStrategy)
+
+            val result = PluginAvailability.isAvailable(SupportedLanguage.JAVA)
+
+            assertFalse(result, "JAVA should not be available when plugin class is missing")
         }
 
         @Test
@@ -175,18 +190,18 @@ class PluginAvailabilityTest {
         }
 
         @Test
-        fun `JAVA and UNKNOWN do not use cache (direct return)`() {
+        fun `UNKNOWN does not use cache or class loading (direct return false)`() {
             // Arrange - set a mock that would fail if called
             every { mockClassLoadingStrategy.loadClass(any()) } throws RuntimeException("Should not be called")
             PluginAvailability.setClassLoadingStrategy(mockClassLoadingStrategy)
 
-            // Act - call multiple times
+            // Act - call multiple times for UNKNOWN only
+            // Note: JAVA now uses class loading since it's an optional plugin
             repeat(3) {
-                PluginAvailability.isAvailable(SupportedLanguage.JAVA)
                 PluginAvailability.isAvailable(SupportedLanguage.UNKNOWN)
             }
 
-            // Verify loadClass was never called for JAVA or UNKNOWN
+            // Verify loadClass was never called for UNKNOWN
             verify(exactly = 0) { mockClassLoadingStrategy.loadClass(any()) }
         }
     }
@@ -240,10 +255,10 @@ class PluginAvailabilityTest {
         }
 
         @Test
-        fun `getClassPath returns null for JAVA (no class path needed)`() {
+        fun `getClassPath returns correct path for JAVA`() {
             val classPath = PluginAvailability.getClassPath(SupportedLanguage.JAVA)
 
-            assertNull(classPath, "JAVA should not have a class path (always available)")
+            assertEquals("com.intellij.psi.PsiJavaFile", classPath, "JAVA should have a class path for optional plugin detection")
         }
 
         @Test
@@ -294,6 +309,8 @@ class PluginAvailabilityTest {
             every { mockClassLoadingStrategy.loadClass("org.jetbrains.kotlin.psi.KtFile") } returns Any::class.java
             every { mockClassLoadingStrategy.loadClass("com.jetbrains.python.psi.PyFile") } throws ClassNotFoundException()
             every { mockClassLoadingStrategy.loadClass("com.goide.psi.GoFile") } returns Any::class.java
+            // Java is now optional - mock its class loading too
+            every { mockClassLoadingStrategy.loadClass("com.intellij.psi.PsiJavaFile") } returns Any::class.java
             PluginAvailability.setClassLoadingStrategy(mockClassLoadingStrategy)
 
             // Act & Assert
@@ -301,7 +318,7 @@ class PluginAvailabilityTest {
             assertFalse(PluginAvailability.isAvailable(SupportedLanguage.PYTHON))
             assertTrue(PluginAvailability.isAvailable(SupportedLanguage.GO))
 
-            // JAVA is always true, UNKNOWN is always false
+            // JAVA now uses class loading (optional plugin), UNKNOWN is always false
             assertTrue(PluginAvailability.isAvailable(SupportedLanguage.JAVA))
             assertFalse(PluginAvailability.isAvailable(SupportedLanguage.UNKNOWN))
         }

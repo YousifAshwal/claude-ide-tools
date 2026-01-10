@@ -77,6 +77,7 @@ object PluginAvailability {
      * - If ClassNotFoundException is thrown, the plugin is not installed
      */
     private val languageClassPaths: Map<SupportedLanguage, String> = mapOf(
+        SupportedLanguage.JAVA to "com.intellij.psi.PsiJavaFile",
         SupportedLanguage.KOTLIN to "org.jetbrains.kotlin.psi.KtFile",
         SupportedLanguage.JAVASCRIPT to "com.intellij.lang.javascript.psi.JSFile",
         SupportedLanguage.TYPESCRIPT to "com.intellij.lang.javascript.psi.JSFile",
@@ -102,15 +103,13 @@ object PluginAvailability {
      * repeated Class.forName() calls. The cache is thread-safe and uses
      * computeIfAbsent for atomic check-and-cache operations.
      *
+     * Note: Java is no longer assumed to always be available. IDEs like WebStorm
+     * or PhpStorm may not have the Java plugin installed.
+     *
      * @param language The language to check for plugin availability
      * @return `true` if the language plugin is available, `false` otherwise
      */
     fun isAvailable(language: SupportedLanguage): Boolean {
-        // Java is always available in IntelliJ-based IDEs (required dependency)
-        if (language == SupportedLanguage.JAVA) {
-            return true
-        }
-
         // UNKNOWN language is never supported
         if (language == SupportedLanguage.UNKNOWN) {
             return false

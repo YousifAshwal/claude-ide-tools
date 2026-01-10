@@ -5,18 +5,12 @@ import com.igorlink.claudeidetools.model.RefactoringResponse
 import com.igorlink.claudeidetools.util.HandlerUtils
 import com.igorlink.claudeidetools.util.LanguageDetector
 import com.igorlink.claudeidetools.util.LanguageHandlerRegistry
-import com.igorlink.claudeidetools.util.RefactoringExecutor
 import com.igorlink.claudeidetools.util.SupportedLanguage
-import com.intellij.codeInsight.CodeInsightUtil
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
-import com.intellij.psi.PsiDocumentManager
-import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
-import com.intellij.psi.PsiJavaFile
 import com.intellij.psi.PsiManager
-import com.intellij.refactoring.extractMethod.ExtractMethodProcessor
 
 /**
  * Handler for the `/extractMethod` endpoint performing extract method/function refactoring.
@@ -65,6 +59,7 @@ import com.intellij.refactoring.extractMethod.ExtractMethodProcessor
  *
  * @see ExtractMethodRequest The request data class
  * @see RefactoringResponse The response data class
+ * @see JavaExtractMethodHandler Language-specific handler for Java
  * @see KotlinExtractMethodHandler Language-specific handler for Kotlin
  * @see JavaScriptExtractMethodHandler Language-specific handler for JS/TS
  * @see PythonExtractMethodHandler Language-specific handler for Python
@@ -72,30 +67,6 @@ import com.intellij.refactoring.extractMethod.ExtractMethodProcessor
  * @see RustExtractMethodHandler Language-specific handler for Rust
  */
 object ExtractMethodHandler {
-
-    /**
-     * Internal context holding pre-computed values for extract method refactoring.
-     *
-     * @property elements Array of PSI elements (statements) to be extracted
-     */
-    private data class ExtractMethodContext(
-        val elements: Array<PsiElement>
-    ) {
-        override fun equals(other: Any?): Boolean {
-            if (this === other) return true
-            if (javaClass != other?.javaClass) return false
-
-            other as ExtractMethodContext
-
-            if (!elements.contentEquals(other.elements)) return false
-
-            return true
-        }
-
-        override fun hashCode(): Int {
-            return elements.contentHashCode()
-        }
-    }
 
     /**
      * Handles the extract method refactoring request.
@@ -137,8 +108,8 @@ object ExtractMethodHandler {
     /**
      * Routes the extract method request to the appropriate language-specific handler.
      *
-     * Uses [LanguageHandlerRegistry] for centralized routing to language-specific handlers.
-     * Java is handled directly in this class; other languages are delegated via the registry.
+     * Uses [LanguageHandlerRegistry] for centralized routing to all language-specific handlers
+     * including Java.
      *
      * @param project The IntelliJ project context
      * @param psiFile The file containing the code to extract
@@ -152,15 +123,6 @@ object ExtractMethodHandler {
         language: SupportedLanguage,
         request: ExtractMethodRequest
     ): RefactoringResponse {
-        // Java is handled directly in this class
-        if (language == SupportedLanguage.JAVA) {
-            return if (psiFile is PsiJavaFile) {
-                performExtractMethod(project, psiFile, request)
-            } else {
-                RefactoringResponse(false, "File is not a valid Java file")
-            }
-        }
-
         // Unknown language
         if (language == SupportedLanguage.UNKNOWN) {
             return RefactoringResponse(
@@ -170,104 +132,11 @@ object ExtractMethodHandler {
             )
         }
 
-        // Delegate to LanguageHandlerRegistry for other languages
+        // Delegate to LanguageHandlerRegistry for all languages including Java
         return LanguageHandlerRegistry.extractMethod(language, project, psiFile, request)
             ?: RefactoringResponse(
                 false,
                 "No handler registered for language: ${LanguageDetector.getLanguageName(language)}"
             )
-    }
-
-    /**
-     * Performs Java extract method refactoring using IntelliJ's ExtractMethodProcessor.
-     *
-     * Finds statements in the specified range, validates they can be extracted,
-     * and performs the extraction with automatic parameter and return value inference.
-     *
-     * @param project The IntelliJ project context
-     * @param psiFile The Java file containing the code
-     * @param request The extract method request with range and method name
-     * @return [RefactoringResponse] indicating success or failure
-     */
-    private fun performExtractMethod(
-        project: Project,
-        psiFile: PsiJavaFile,
-        request: ExtractMethodRequest
-    ): RefactoringResponse {
-        // Consolidate all read actions into a single block for better performance
-        val contextResult = ReadAction.compute<Result<ExtractMethodContext>, Throwable> {
-            val document = PsiDocumentManager.getInstance(project).getDocument(psiFile)
-                ?: return@compute Result.failure(IllegalStateException("Cannot get document for file"))
-
-            // Validate line bounds
-            if (request.startLine < 1 || request.startLine > document.lineCount) {
-                return@compute Result.failure(IllegalArgumentException(
-                    "Start line ${request.startLine} is out of bounds (1-${document.lineCount})"
-                ))
-            }
-            if (request.endLine < 1 || request.endLine > document.lineCount) {
-                return@compute Result.failure(IllegalArgumentException(
-                    "End line ${request.endLine} is out of bounds (1-${document.lineCount})"
-                ))
-            }
-            if (request.startLine > request.endLine) {
-                return@compute Result.failure(IllegalArgumentException(
-                    "Start line (${request.startLine}) must be <= end line (${request.endLine})"
-                ))
-            }
-
-            // Validate column bounds
-            val startLineLength = document.getLineEndOffset(request.startLine - 1) -
-                document.getLineStartOffset(request.startLine - 1)
-            if (request.startColumn < 1 || request.startColumn > startLineLength + 1) {
-                return@compute Result.failure(IllegalArgumentException(
-                    "Start column ${request.startColumn} is out of bounds for line ${request.startLine} (1-${startLineLength + 1})"
-                ))
-            }
-            val endLineLength = document.getLineEndOffset(request.endLine - 1) -
-                document.getLineStartOffset(request.endLine - 1)
-            if (request.endColumn < 1 || request.endColumn > endLineLength + 1) {
-                return@compute Result.failure(IllegalArgumentException(
-                    "End column ${request.endColumn} is out of bounds for line ${request.endLine} (1-${endLineLength + 1})"
-                ))
-            }
-
-            val startOffset = document.getLineStartOffset(request.startLine - 1) + (request.startColumn - 1)
-            val endOffset = document.getLineStartOffset(request.endLine - 1) + (request.endColumn - 1)
-            val elements = CodeInsightUtil.findStatementsInRange(psiFile, startOffset, endOffset)
-
-            if (elements.isEmpty()) {
-                return@compute Result.failure(IllegalStateException("No statements found in the specified range"))
-            }
-
-            Result.success(ExtractMethodContext(elements))
-        }
-
-        val context = contextResult.getOrElse { error ->
-            return RefactoringResponse(false, error.message ?: "Unknown error during preparation")
-        }
-
-        return RefactoringExecutor.executeWithCallback(
-            project = project,
-            commandName = "MCP Extract Method: ${request.methodName}"
-        ) { callback ->
-            val processor = ExtractMethodProcessor(
-                project,
-                null, // editor
-                context.elements,
-                null, // forcedReturnType
-                "MCP Extract Method",
-                request.methodName,
-                null // helpId
-            )
-
-            if (processor.prepare()) {
-                processor.testPrepare()
-                processor.doExtract()
-                callback.success("Extracted method '${request.methodName}' in project '${project.name}'")
-            } else {
-                callback.failure("Cannot extract method from the selected code")
-            }
-        }
     }
 }

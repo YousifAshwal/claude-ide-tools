@@ -67,4 +67,25 @@ object SourceRootDetector {
             }
         }
     }
+
+    /**
+     * Determines the source root type for a PSI element's containing file.
+     *
+     * Convenience method that extracts the virtual file from the element's
+     * containing file and delegates to [determineSourceRootType].
+     *
+     * @param project The IntelliJ project context
+     * @param element The PSI element to analyze
+     * @return The detected [SourceRootType] (MAIN, TEST, or NONE)
+     */
+    fun determineSourceRootType(project: Project, element: com.intellij.psi.PsiElement): SourceRootType {
+        val virtualFile = ReadAction.compute<VirtualFile?, Throwable> {
+            element.containingFile?.virtualFile
+        }
+        return if (virtualFile != null) {
+            determineSourceRootType(project, virtualFile)
+        } else {
+            SourceRootType.NONE
+        }
+    }
 }
