@@ -87,6 +87,8 @@ The plugin uses a **dual MCP server architecture** to provide optimal tool routi
 | `status` | Shows all running JetBrains IDEs, their open projects, indexing status, and available language plugins |
 | `rename` | Safe semantic rename using IDE's refactoring engine. Finds and updates ALL usages across the project |
 | `find_usages` | Semantic code search using IDE's index. Finds real usages, not just text matches |
+| `get_diagnostics` | Retrieve code analysis diagnostics (errors, warnings) from the IDE with available quick fixes |
+| `apply_fix` | Apply a quick fix action to automatically resolve a diagnostic issue |
 
 ### IDE-Specific Tools
 
@@ -138,6 +140,61 @@ For other languages (JS/TS, Python, Go, Rust), these operations require editor c
 **move** supports optional parameters:
 - `searchInComments` (boolean, default: false) - Also update occurrences in comments
 - `searchInNonJavaFiles` (boolean, default: false) - Also update occurrences in non-Java files (XML, properties, etc.)
+
+### Diagnostics Tools
+
+The `get_diagnostics` and `apply_fix` tools provide IDE-powered code analysis and automatic fixing capabilities.
+
+#### get_diagnostics
+
+Retrieves code analysis diagnostics (errors, warnings, hints) from the IDE.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file` | string | No | Absolute path to analyze. Omit for project-wide scan. Can be a directory. |
+| `severity` | array | No | Filter by severity: `["ERROR", "WARNING", "WEAK_WARNING", "INFO", "HINT"]` |
+| `limit` | number | No | Maximum diagnostics to return (default: 100) |
+| `runInspections` | boolean | No | Run inspections programmatically (default: false) |
+
+**Analysis Modes:**
+- **Cached (default)**: Fast, uses IDE's background analysis cache. Only shows diagnostics for files already analyzed by IDE.
+- **Comprehensive (`runInspections=true`)**: Runs all inspections programmatically. Slower but analyzes ALL files including unopened ones.
+
+**Example Response:**
+```
+[WARNING] /path/to/File.kt:45:9 (ImplicitThis)
+  Implicit 'this'
+  Fixes:
+    [0] Add explicit 'this'
+```
+
+#### apply_fix
+
+Applies a quick fix action to resolve a diagnostic issue.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file` | string | Yes | Absolute path to the file containing the diagnostic |
+| `line` | number | Yes | Line number (1-based) of the diagnostic |
+| `column` | number | Yes | Column number (1-based) of the diagnostic |
+| `fixId` | number | Yes | Index of the fix to apply (from `get_diagnostics` response) |
+| `diagnosticMessage` | string | No | Match specific diagnostic by message (for disambiguation) |
+| `runInspections` | boolean | No | Run inspections to find diagnostic (use same mode as `get_diagnostics`) |
+
+**Important:** Use the same analysis mode for both tools:
+- If you used `get_diagnostics()` (default), use `apply_fix()` (default)
+- If you used `get_diagnostics(runInspections=true)`, use `apply_fix(runInspections=true)`
+
+**Workflow Example:**
+```
+# 1. Find diagnostics
+get_diagnostics(runInspections=true, severity=["ERROR", "WARNING"])
+
+# 2. Apply a fix (use same runInspections setting!)
+apply_fix(file="/path/to/File.kt", line=45, column=9, fixId=0, runInspections=true)
+```
 
 ## Installation
 
@@ -224,9 +281,15 @@ Once installed, Claude Code will automatically prefer IDE tools for code operati
 
 # Extract method (uses IDE-specific tool)
 "Extract lines 50-65 from processData into a new method called validateInput"
+
+# Get all errors and warnings in the project
+"Check the project for errors and warnings"
+
+# Fix all diagnostics automatically
+"Find and fix all code issues in this file"
 ```
 
-Claude will use `find_usages` instead of grep, `rename` instead of find-replace, etc.
+Claude will use `find_usages` instead of grep, `rename` instead of find-replace, `get_diagnostics` instead of compiler output, etc.
 
 ## Development
 

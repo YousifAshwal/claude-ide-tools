@@ -22,7 +22,7 @@ import org.junit.jupiter.api.Test
  *
  * Tests cover:
  * 1. GET /status routing
- * 2. POST endpoints routing (/rename, /findUsages, /move, /extractMethod)
+ * 2. POST endpoints routing (/rename, /findUsages, /move, /extractMethod, /diagnostics)
  * 3. Malformed JSON handling
  * 4. Unknown routes (404)
  * 5. Content-Type validation
@@ -47,7 +47,8 @@ class McpHttpServerTest {
         renameHandler: (RenameRequest) -> RefactoringResponse = { defaultRefactoringResponse("rename") },
         findUsagesHandler: (FindUsagesRequest) -> FindUsagesResponse = { defaultFindUsagesResponse() },
         moveHandler: (MoveRequest) -> RefactoringResponse = { defaultRefactoringResponse("move") },
-        extractMethodHandler: (ExtractMethodRequest) -> RefactoringResponse = { defaultRefactoringResponse("extractMethod") }
+        extractMethodHandler: (ExtractMethodRequest) -> RefactoringResponse = { defaultRefactoringResponse("extractMethod") },
+        diagnosticsHandler: (DiagnosticsRequest) -> DiagnosticsResponse = { defaultDiagnosticsResponse() }
     ) {
         application {
             install(ContentNegotiation) {
@@ -86,6 +87,13 @@ class McpHttpServerTest {
                 post("/extractMethod") {
                     handleTestRequest<ExtractMethodRequest>("EXTRACT_METHOD_ERROR") { request ->
                         extractMethodHandler(request)
+                    }
+                }
+
+                // Diagnostics
+                post("/diagnostics") {
+                    handleTestRequest<DiagnosticsRequest>("DIAGNOSTICS_ERROR") { request ->
+                        diagnosticsHandler(request)
                     }
                 }
             }
@@ -133,6 +141,17 @@ class McpHttpServerTest {
             Usage("/path/to/File1.kt", 10, 5, "usage preview 1"),
             Usage("/path/to/File2.kt", 20, 10, "usage preview 2")
         )
+    )
+
+    private fun defaultDiagnosticsResponse() = DiagnosticsResponse(
+        success = true,
+        message = "Found 2 diagnostic(s) in file 'File.kt'",
+        diagnostics = listOf(
+            Diagnostic("/path/to/File.kt", 10, 5, 10, 15, "ERROR", "Cannot resolve symbol 'foo'", "Java"),
+            Diagnostic("/path/to/File.kt", 20, 10, 20, 25, "WARNING", "Unused variable 'bar'", "Kotlin")
+        ),
+        totalCount = 2,
+        truncated = false
     )
 
     // ==================== GET /status Tests ====================
@@ -511,6 +530,260 @@ class McpHttpServerTest {
             assertNotNull(capturedRequest)
             assertEquals(capturedRequest?.startLine, capturedRequest?.endLine)
             assertEquals(capturedRequest?.startColumn, capturedRequest?.endColumn)
+        }
+    }
+
+    // ==================== POST /diagnostics Tests ====================
+
+    @Nested
+    inner class DiagnosticsEndpointTest {
+
+        @Test
+        fun `POST diagnostics with valid request returns 200`() = testApplication {
+            configureTestApplication()
+
+            val response = client.post("/diagnostics") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"file":"/path/to/File.kt"}""")
+            }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            val body = response.bodyAsText()
+            assertTrue(body.contains("\"success\""))
+            assertTrue(body.contains("true"))
+            assertTrue(body.contains("\"diagnostics\""))
+        }
+
+        @Test
+        fun `POST diagnostics passes request to handler`() = testApplication {
+            var capturedRequest: DiagnosticsRequest? = null
+            configureTestApplication(
+                diagnosticsHandler = { request ->
+                    capturedRequest = request
+                    defaultDiagnosticsResponse()
+                }
+            )
+
+            client.post("/diagnostics") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"file":"/src/Main.kt","project":"MyProject","severity":["ERROR","WARNING"],"limit":50}""")
+            }
+
+            assertNotNull(capturedRequest)
+            assertEquals("/src/Main.kt", capturedRequest?.file)
+            assertEquals("MyProject", capturedRequest?.project)
+            assertEquals(listOf("ERROR", "WARNING"), capturedRequest?.severity)
+            assertEquals(50, capturedRequest?.limit)
+        }
+
+        @Test
+        fun `POST diagnostics with file parameter for single file mode`() = testApplication {
+            var capturedRequest: DiagnosticsRequest? = null
+            configureTestApplication(
+                diagnosticsHandler = { request ->
+                    capturedRequest = request
+                    defaultDiagnosticsResponse()
+                }
+            )
+
+            client.post("/diagnostics") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"file":"/path/to/File.kt"}""")
+            }
+
+            assertNotNull(capturedRequest)
+            assertEquals("/path/to/File.kt", capturedRequest?.file)
+        }
+
+        @Test
+        fun `POST diagnostics without file parameter for project-wide mode`() = testApplication {
+            var capturedRequest: DiagnosticsRequest? = null
+            configureTestApplication(
+                diagnosticsHandler = { request ->
+                    capturedRequest = request
+                    defaultDiagnosticsResponse()
+                }
+            )
+
+            client.post("/diagnostics") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"project":"MyProject"}""")
+            }
+
+            assertNotNull(capturedRequest)
+            assertNull(capturedRequest?.file)
+            assertEquals("MyProject", capturedRequest?.project)
+        }
+
+        @Test
+        fun `POST diagnostics with severity filter`() = testApplication {
+            var capturedRequest: DiagnosticsRequest? = null
+            configureTestApplication(
+                diagnosticsHandler = { request ->
+                    capturedRequest = request
+                    defaultDiagnosticsResponse()
+                }
+            )
+
+            client.post("/diagnostics") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"severity":["ERROR"]}""")
+            }
+
+            assertNotNull(capturedRequest)
+            assertEquals(listOf("ERROR"), capturedRequest?.severity)
+        }
+
+        @Test
+        fun `POST diagnostics with limit parameter`() = testApplication {
+            var capturedRequest: DiagnosticsRequest? = null
+            configureTestApplication(
+                diagnosticsHandler = { request ->
+                    capturedRequest = request
+                    defaultDiagnosticsResponse()
+                }
+            )
+
+            client.post("/diagnostics") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"limit":25}""")
+            }
+
+            assertNotNull(capturedRequest)
+            assertEquals(25, capturedRequest?.limit)
+        }
+
+        @Test
+        fun `POST diagnostics with project parameter`() = testApplication {
+            var capturedRequest: DiagnosticsRequest? = null
+            configureTestApplication(
+                diagnosticsHandler = { request ->
+                    capturedRequest = request
+                    defaultDiagnosticsResponse()
+                }
+            )
+
+            client.post("/diagnostics") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"project":"Backend"}""")
+            }
+
+            assertNotNull(capturedRequest)
+            assertEquals("Backend", capturedRequest?.project)
+        }
+
+        @Test
+        fun `POST diagnostics returns handler response`() = testApplication {
+            val customResponse = DiagnosticsResponse(
+                success = true,
+                message = "Found 3 diagnostics",
+                diagnostics = listOf(
+                    Diagnostic("/a.kt", 1, 1, 1, 10, "ERROR", "Error 1", "Java"),
+                    Diagnostic("/b.kt", 2, 1, 2, 10, "WARNING", "Warning 1", "Kotlin"),
+                    Diagnostic("/c.kt", 3, 1, 3, 10, "INFO", "Info 1", null)
+                ),
+                totalCount = 3,
+                truncated = false
+            )
+            configureTestApplication(diagnosticsHandler = { customResponse })
+
+            val response = client.post("/diagnostics") {
+                contentType(ContentType.Application.Json)
+                setBody("""{}""")
+            }
+
+            val body = response.bodyAsText()
+            assertTrue(body.contains("Found 3 diagnostics"))
+            assertTrue(body.contains("/a.kt"))
+            assertTrue(body.contains("/b.kt"))
+            assertTrue(body.contains("/c.kt"))
+            assertTrue(body.contains("ERROR"))
+            assertTrue(body.contains("WARNING"))
+        }
+
+        @Test
+        fun `GET diagnostics returns error status`() = testApplication {
+            configureTestApplication()
+
+            val response = client.get("/diagnostics")
+
+            assertTrue(
+                response.status == HttpStatusCode.NotFound || response.status == HttpStatusCode.MethodNotAllowed,
+                "Expected 404 or 405 but got ${response.status}"
+            )
+        }
+
+        @Test
+        fun `POST diagnostics with invalid JSON returns 400 with DIAGNOSTICS_ERROR`() = testApplication {
+            configureTestApplication()
+
+            val response = client.post("/diagnostics") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"file": 123}""") // file should be string
+            }
+
+            assertEquals(HttpStatusCode.BadRequest, response.status)
+            val body = response.bodyAsText()
+            assertTrue(body.contains("DIAGNOSTICS_ERROR"))
+        }
+
+        @Test
+        fun `POST diagnostics with malformed JSON syntax returns 400`() = testApplication {
+            configureTestApplication()
+
+            val response = client.post("/diagnostics") {
+                contentType(ContentType.Application.Json)
+                setBody("""{invalid json""")
+            }
+
+            assertEquals(HttpStatusCode.BadRequest, response.status)
+        }
+
+        @Test
+        fun `POST diagnostics with empty body returns valid response`() = testApplication {
+            // Empty body should work since all fields are optional
+            var capturedRequest: DiagnosticsRequest? = null
+            configureTestApplication(
+                diagnosticsHandler = { request ->
+                    capturedRequest = request
+                    defaultDiagnosticsResponse()
+                }
+            )
+
+            val response = client.post("/diagnostics") {
+                contentType(ContentType.Application.Json)
+                setBody("""{}""")
+            }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            assertNotNull(capturedRequest)
+            assertNull(capturedRequest?.file)
+            assertEquals(100, capturedRequest?.limit) // default value
+        }
+
+        @Test
+        fun `POST diagnostics returns truncated flag correctly`() = testApplication {
+            val truncatedResponse = DiagnosticsResponse(
+                success = true,
+                message = "Found 1000 diagnostics (showing first 100)",
+                diagnostics = (1..100).map {
+                    Diagnostic("/file.kt", it, 1, it, 10, "WARNING", "Warning $it", null)
+                },
+                totalCount = 1000,
+                truncated = true
+            )
+            configureTestApplication(diagnosticsHandler = { truncatedResponse })
+
+            val response = client.post("/diagnostics") {
+                contentType(ContentType.Application.Json)
+                setBody("""{}""")
+            }
+
+            val body = response.bodyAsText()
+            assertTrue(body.contains("\"truncated\""))
+            assertTrue(body.contains("true"))
+            assertTrue(body.contains("\"totalCount\""))
+            assertTrue(body.contains("1000"))
         }
     }
 

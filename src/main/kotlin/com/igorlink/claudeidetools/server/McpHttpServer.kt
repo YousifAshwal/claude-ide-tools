@@ -1,7 +1,19 @@
 package com.igorlink.claudeidetools.server
 
-import com.igorlink.claudeidetools.handlers.*
-import com.igorlink.claudeidetools.model.*
+import com.igorlink.claudeidetools.handlers.ApplyFixHandler
+import com.igorlink.claudeidetools.handlers.DiagnosticsHandler
+import com.igorlink.claudeidetools.handlers.ExtractMethodHandler
+import com.igorlink.claudeidetools.handlers.FindUsagesHandler
+import com.igorlink.claudeidetools.handlers.MoveHandler
+import com.igorlink.claudeidetools.handlers.RenameHandler
+import com.igorlink.claudeidetools.handlers.StatusHandler
+import com.igorlink.claudeidetools.model.ApplyFixRequest
+import com.igorlink.claudeidetools.model.DiagnosticsRequest
+import com.igorlink.claudeidetools.model.ErrorResponse
+import com.igorlink.claudeidetools.model.ExtractMethodRequest
+import com.igorlink.claudeidetools.model.FindUsagesRequest
+import com.igorlink.claudeidetools.model.MoveRequest
+import com.igorlink.claudeidetools.model.RenameRequest
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
@@ -28,6 +40,8 @@ import com.intellij.openapi.diagnostic.Logger
  * - `POST /findUsages` - Find all usages of a symbol
  * - `POST /move` - Move class/symbol to different package
  * - `POST /extractMethod` - Extract code block into a new method
+ * - `POST /diagnostics` - Get code analysis diagnostics (errors, warnings, etc.)
+ * - `POST /applyFix` - Apply a quick fix action to resolve a diagnostic
  *
  * ## Lifecycle
  * The server is started automatically when the IDE launches via [McpPluginStartup]
@@ -135,6 +149,20 @@ class McpHttpServer(private val port: Int) {
                 post("/extractMethod") {
                     handleRequest<ExtractMethodRequest>("/extractMethod", "EXTRACT_METHOD_ERROR") { request ->
                         ExtractMethodHandler.handle(request)
+                    }
+                }
+
+                // Diagnostics (errors, warnings, etc.)
+                post("/diagnostics") {
+                    handleRequest<DiagnosticsRequest>("/diagnostics", "DIAGNOSTICS_ERROR") { request ->
+                        DiagnosticsHandler.handle(request)
+                    }
+                }
+
+                // Apply quick fix
+                post("/applyFix") {
+                    handleRequest<ApplyFixRequest>("/applyFix", "APPLY_FIX_ERROR") { request ->
+                        ApplyFixHandler.handle(request)
                     }
                 }
             }

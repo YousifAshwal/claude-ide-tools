@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.20] - 2025-01-11
+
+### Added
+- **Code Diagnostics**: New `get_diagnostics` tool to retrieve errors, warnings, and hints from IDE
+  - Supports project-wide and file-specific analysis
+  - Filter by severity levels (ERROR, WARNING, WEAK_WARNING, INFO, HINT)
+  - Two analysis modes: cached (fast) and runInspections (comprehensive)
+  - Directory support for analyzing entire packages
+  - Shows available quick fixes for each diagnostic
+- **Quick Fix Application**: New `apply_fix` tool to automatically resolve diagnostic issues
+  - Apply IDE's built-in quick fixes programmatically
+  - Works with both cached highlights and inspection-based diagnostics
+  - Automatically saves files after applying fixes
+- `DiagnosticsHandler` for processing diagnostics requests
+- `ApplyFixHandler` for applying quick fix actions
+- `CachedHighlightsProvider` for fast diagnostics from IDE cache
+- `InspectionRunnerProvider` for comprehensive inspection-based analysis
+
 ## [0.3.19] - 2025-01-10
 
 ### Fixed
@@ -89,7 +107,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Extract method refactoring
 - Auto-registration in Claude Code config
 
-[Unreleased]: https://github.com/AiryLark/claude-ide-tools/compare/v0.3.16...HEAD
+[Unreleased]: https://github.com/AiryLark/claude-ide-tools/compare/v0.3.20...HEAD
+[0.3.20]: https://github.com/AiryLark/claude-ide-tools/compare/v0.3.19...v0.3.20
+[0.3.19]: https://github.com/AiryLark/claude-ide-tools/compare/v0.3.16...v0.3.19
 [0.3.16]: https://github.com/AiryLark/claude-ide-tools/compare/v0.3.15...v0.3.16
 [0.3.15]: https://github.com/AiryLark/claude-ide-tools/compare/v0.3.14...v0.3.15
 [0.3.14]: https://github.com/AiryLark/claude-ide-tools/compare/v0.3.13...v0.3.14
