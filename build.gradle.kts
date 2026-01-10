@@ -5,7 +5,71 @@ plugins {
 }
 
 group = "com.igorlink"
-version = "0.3.15"
+version = "0.3.16"
+
+/**
+ * Extracts changelog entries from CHANGELOG.md and converts to HTML for JetBrains Marketplace.
+ * Reads the last 3 versions from the changelog file.
+ */
+fun extractChangelogHtml(): String {
+    val changelogFile = file("CHANGELOG.md")
+    if (!changelogFile.exists()) {
+        return "<p>See <a href=\"https://github.com/AiryLark/claude-ide-tools/blob/master/CHANGELOG.md\">CHANGELOG.md</a> for details.</p>"
+    }
+
+    val lines = changelogFile.readLines()
+    val result = StringBuilder()
+    var versionsFound = 0
+    var inVersion = false
+    var inList = false
+
+    for (line in lines) {
+        // Match version headers like "## [0.3.16] - 2025-01-10"
+        if (line.startsWith("## [") && !line.contains("[Unreleased]")) {
+            if (versionsFound >= 3) break
+
+            // Close previous list if open
+            if (inList) {
+                result.append("</ul>\n")
+                inList = false
+            }
+
+            inVersion = true
+            versionsFound++
+            val currentVersion = line.substringAfter("## [").substringBefore("]")
+            result.append("<h3>$currentVersion</h3>\n")
+        } else if (inVersion) {
+            when {
+                line.startsWith("### ") -> {
+                    // Close previous list if open
+                    if (inList) {
+                        result.append("</ul>\n")
+                        inList = false
+                    }
+                    val section = line.substringAfter("### ")
+                    result.append("<b>$section</b>\n<ul>\n")
+                    inList = true
+                }
+                line.startsWith("- ") -> {
+                    val item = line.substringAfter("- ")
+                        // Convert markdown to HTML using regex for proper pairing
+                        .replace(Regex("`([^`]+)`"), "<code>$1</code>")
+                        .replace(Regex("\\*\\*([^*]+)\\*\\*"), "<b>$1</b>")
+                    result.append("  <li>$item</li>\n")
+                }
+            }
+        }
+    }
+
+    // Close any open list tag
+    if (inList) {
+        result.append("</ul>\n")
+    }
+
+    return result.toString().ifEmpty {
+        "<p>See <a href=\"https://github.com/AiryLark/claude-ide-tools/blob/master/CHANGELOG.md\">CHANGELOG.md</a> for details.</p>"
+    }
+}
 
 repositories {
     mavenCentral()
@@ -103,29 +167,8 @@ intellijPlatform {
             url = "https://github.com/AiryLark"
         }
 
-        changeNotes = """
-            <h3>0.3.10</h3>
-            <ul>
-                <li>Added unified error handling with typed error codes</li>
-                <li>Fixed plugin availability detection (LinkageError handling)</li>
-                <li>Improved testability with ClassLoadingStrategy injection</li>
-                <li>Added LanguageHandlerRegistry for centralized routing</li>
-                <li>Thread safety improvements (@Volatile for cached values)</li>
-            </ul>
-
-            <h3>0.3.9</h3>
-            <ul>
-                <li>Conditional tool registration based on implemented languages</li>
-                <li>Added IdeDetector and LanguageDetector tests</li>
-            </ul>
-
-            <h3>0.3.8</h3>
-            <ul>
-                <li>Initial public release</li>
-                <li>Support for rename, find_usages, move, extract_method</li>
-                <li>Auto-registration in Claude Code config</li>
-            </ul>
-        """.trimIndent()
+        // Changelog is read from CHANGELOG.md file
+        changeNotes = extractChangelogHtml()
     }
 
     publishing {
