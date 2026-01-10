@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.19] - 2025-01-10
+
+### Fixed
+- **MCP Registration Always Shows Notification**: Fixed issue where reinstalling the plugin didn't show "restart IDE" notification
+- Registration now removes existing server config before adding, ensuring fresh configuration
+
+### Changed
+- Refactored `McpRemoveResult` to enum for clearer semantics (REMOVED, NOT_FOUND, ERROR)
+
 ## [0.3.18] - 2025-01-10
 
 ### Fixed

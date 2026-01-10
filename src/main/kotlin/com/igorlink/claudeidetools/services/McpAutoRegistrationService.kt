@@ -327,7 +327,8 @@ class McpAutoRegistrationService {
     /**
      * Registers an MCP server using Claude Code CLI.
      *
-     * Executes: `claude mcp add -s user <name> -- node <path> <args...>`
+     * First removes any existing server with the same name to ensure fresh configuration,
+     * then adds the server with the specified parameters.
      *
      * @param serverName The name for the MCP server
      * @param serverPath Absolute path to the server JS file
@@ -342,6 +343,10 @@ class McpAutoRegistrationService {
         return try {
             val normalizedPath = serverPath.replace("\\", "/")
             val isWindows = System.getProperty("os.name").lowercase().contains("win")
+
+            // First, remove existing server (if any) to ensure fresh config
+            val removeResult = runClaudeMcpRemove(serverName)
+            val existed = removeResult == McpRemoveResult.REMOVED
 
             // Build command: claude mcp add -s user <name> -- node <path> [args...]
             val command = mutableListOf<String>()
@@ -362,17 +367,9 @@ class McpAutoRegistrationService {
 
             when {
                 exitCode == 0 -> {
-                    val wasUpdated = output.contains("updated", ignoreCase = true) ||
-                            output.contains("replaced", ignoreCase = true)
-                    val wasNew = !wasUpdated && (output.contains("added", ignoreCase = true) ||
-                            output.contains("registered", ignoreCase = true))
                     logger.info("MCP server '$serverName' registered: $output")
-                    McpAddResult(success = true, wasNew = wasNew, wasUpdated = wasUpdated)
-                }
-                output.contains("already exists", ignoreCase = true) ||
-                output.contains("already registered", ignoreCase = true) -> {
-                    logger.info("MCP server '$serverName' already registered")
-                    McpAddResult(success = true)
+                    // If server existed before, it's an update; otherwise it's new
+                    McpAddResult(success = true, wasNew = !existed, wasUpdated = existed)
                 }
                 else -> {
                     logger.warn("Failed to add MCP server '$serverName': $output (exit code: $exitCode)")
@@ -428,22 +425,35 @@ class McpAutoRegistrationService {
      * The extracted server files in the user's home directory are NOT deleted,
      * only the configuration entries are removed.
      *
-     * @return `true` if unregistration succeeded, `false` if any error occurred
+     * @return `true` if unregistration completed (servers removed or didn't exist),
+     *         `false` if an error occurred
      */
     fun unregister(): Boolean {
         val ideServerName = getIdeMcpServerName()
         val serverNames = listOf(COMMON_SERVER_NAME, ideServerName)
 
-        var allSucceeded = true
+        var anyError = false
 
         for (serverName in serverNames) {
-            val success = runClaudeMcpRemove(serverName)
-            if (!success) {
-                allSucceeded = false
+            val result = runClaudeMcpRemove(serverName)
+            if (result == McpRemoveResult.ERROR) {
+                anyError = true
             }
         }
 
-        return allSucceeded
+        return !anyError
+    }
+
+    /**
+     * Result of running `claude mcp remove` command.
+     */
+    private enum class McpRemoveResult {
+        /** Server existed and was successfully removed. */
+        REMOVED,
+        /** Server did not exist (nothing to remove). */
+        NOT_FOUND,
+        /** An error occurred during removal. */
+        ERROR
     }
 
     /**
@@ -453,9 +463,9 @@ class McpAutoRegistrationService {
      * the server from the user-scoped configuration.
      *
      * @param serverName The name of the MCP server to remove
-     * @return `true` if the command succeeded or server didn't exist, `false` on error
+     * @return [McpRemoveResult] indicating whether server was removed, not found, or error occurred
      */
-    private fun runClaudeMcpRemove(serverName: String): Boolean {
+    private fun runClaudeMcpRemove(serverName: String): McpRemoveResult {
         return try {
             val isWindows = System.getProperty("os.name").lowercase().contains("win")
             val command = if (isWindows) {
@@ -473,23 +483,24 @@ class McpAutoRegistrationService {
             val output = process.inputStream.bufferedReader().readText()
             val exitCode = process.waitFor()
 
-            if (exitCode == 0) {
-                logger.info("MCP server '$serverName' removed successfully")
-                true
-            } else {
-                // Exit code 1 might mean server doesn't exist - that's OK
-                if (output.contains("not found", ignoreCase = true) ||
-                    output.contains("does not exist", ignoreCase = true)) {
+            when {
+                exitCode == 0 -> {
+                    logger.info("MCP server '$serverName' removed successfully")
+                    McpRemoveResult.REMOVED
+                }
+                output.contains("not found", ignoreCase = true) ||
+                output.contains("does not exist", ignoreCase = true) -> {
                     logger.info("MCP server '$serverName' was not registered")
-                    true
-                } else {
+                    McpRemoveResult.NOT_FOUND
+                }
+                else -> {
                     logger.warn("Failed to remove MCP server '$serverName': $output")
-                    false
+                    McpRemoveResult.ERROR
                 }
             }
         } catch (e: Exception) {
             logger.error("Error running claude mcp remove for '$serverName'", e)
-            false
+            McpRemoveResult.ERROR
         }
     }
 }
