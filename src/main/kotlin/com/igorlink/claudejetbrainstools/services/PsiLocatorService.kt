@@ -1,5 +1,7 @@
 package com.igorlink.claudejetbrainstools.services
 
+import com.igorlink.claudejetbrainstools.model.OperationError
+import com.igorlink.claudejetbrainstools.model.OperationResult
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
@@ -19,7 +21,7 @@ import com.intellij.psi.PsiNamedElement
  * Result of a PSI element lookup operation.
  *
  * This sealed class represents either a successful lookup with the found project and element,
- * or an error with a descriptive message.
+ * or an error with structured error information.
  *
  * @see PsiLocatorService.findElementAt
  */
@@ -33,18 +35,24 @@ sealed class PsiLookupResult {
     data class Found(val project: Project, val element: PsiElement) : PsiLookupResult()
 
     /**
-     * Failed lookup result with an error message.
+     * Failed lookup result with structured error information.
      *
-     * @property message Human-readable error description
+     * @property error The operation error with code and message
      */
-    data class Error(val message: String) : PsiLookupResult()
+    data class Error(val error: OperationError) : PsiLookupResult() {
+        /** Human-readable error description for backward compatibility. */
+        val message: String get() = error.message
+
+        /** Create Error with just a message (convenience constructor for migration). */
+        constructor(message: String) : this(OperationError.internalError(message))
+    }
 }
 
 /**
  * Result of a project lookup operation.
  *
  * This sealed class represents either a successful project resolution
- * or an error with a descriptive message.
+ * or an error with structured error information.
  *
  * @see PsiLocatorService.findProjectForFilePath
  */
@@ -57,11 +65,17 @@ sealed class ProjectLookupResult {
     data class Found(val project: Project) : ProjectLookupResult()
 
     /**
-     * Failed lookup result with an error message.
+     * Failed lookup result with structured error information.
      *
-     * @property message Human-readable error description
+     * @property error The operation error with code and message
      */
-    data class Error(val message: String) : ProjectLookupResult()
+    data class Error(val error: OperationError) : ProjectLookupResult() {
+        /** Human-readable error description for backward compatibility. */
+        val message: String get() = error.message
+
+        /** Create Error with just a message (convenience constructor for migration). */
+        constructor(message: String) : this(OperationError.internalError(message))
+    }
 }
 
 /**
@@ -101,11 +115,6 @@ sealed class ProjectLookupResult {
 class PsiLocatorService {
     private val logger = Logger.getInstance(PsiLocatorService::class.java)
 
-    companion object {
-        /** Error message returned when the IDE is in indexing mode. */
-        private const val INDEXING_ERROR_MESSAGE = "IDE is currently indexing. Please wait and try again."
-    }
-
     /**
      * Checks if the project is in "dumb mode" (indexing in progress).
      *
@@ -117,7 +126,21 @@ class PsiLocatorService {
      */
     fun checkDumbMode(project: Project): String? {
         return if (DumbService.getInstance(project).isDumb) {
-            INDEXING_ERROR_MESSAGE
+            OperationError.indexingInProgress().message
+        } else {
+            null
+        }
+    }
+
+    /**
+     * Checks if the project is in "dumb mode" and returns a structured error.
+     *
+     * @param project The project to check
+     * @return [OperationError] if indexing, `null` otherwise
+     */
+    fun checkDumbModeError(project: Project): OperationError? {
+        return if (DumbService.getInstance(project).isDumb) {
+            OperationError.indexingInProgress()
         } else {
             null
         }
@@ -142,15 +165,18 @@ class PsiLocatorService {
      *
      * @param filePath Absolute path to the file (forward or backslashes accepted)
      * @param projectHint Optional project name or base path to disambiguate when multiple projects are open
-     * @return Either a [FileProjectResolution] on success or an error message string on failure
+     * @return [OperationResult] with [FileProjectResolution] on success, or [OperationError] on failure
      */
-    private fun resolveFileAndProject(filePath: String, projectHint: String?): Either<String, FileProjectResolution> {
+    private fun resolveFileAndProject(
+        filePath: String,
+        projectHint: String?
+    ): OperationResult<FileProjectResolution> {
         val normalizedPath = filePath.replace("\\", "/")
         val virtualFile = LocalFileSystem.getInstance().findFileByPath(normalizedPath)
 
         if (virtualFile == null) {
             logger.warn("File not found: $filePath")
-            return Either.Left("File not found: $filePath")
+            return OperationResult.failure(OperationError.fileNotFound(filePath))
         }
 
         val project = if (projectHint != null) {
@@ -163,31 +189,10 @@ class PsiLocatorService {
             val openProjects = ProjectManager.getInstance().openProjects
                 .filter { !it.isDisposed }
                 .map { it.name }
-            return Either.Left(
-                "File does not belong to any open project. " +
-                "Open projects: ${openProjects.joinToString(", ")}. " +
-                "You can specify 'project' parameter explicitly."
-            )
+            return OperationResult.failure(OperationError.fileNotInProject(filePath, openProjects))
         }
 
-        return Either.Right(FileProjectResolution(project, virtualFile))
-    }
-
-    /**
-     * Simple Either type for error handling without external dependencies.
-     *
-     * Used internally to represent operations that can fail with an error message (Left)
-     * or succeed with a result (Right).
-     *
-     * @param L The error/left type (typically String for error messages)
-     * @param R The success/right type
-     */
-    private sealed class Either<out L, out R> {
-        /** Represents a failure with an error value. */
-        data class Left<L>(val value: L) : Either<L, Nothing>()
-
-        /** Represents a success with a result value. */
-        data class Right<R>(val value: R) : Either<Nothing, R>()
+        return OperationResult.success(FileProjectResolution(project, virtualFile))
     }
 
     /**
@@ -208,8 +213,8 @@ class PsiLocatorService {
      */
     fun findProjectForFilePath(filePath: String, projectHint: String? = null): ProjectLookupResult {
         return when (val resolution = resolveFileAndProject(filePath, projectHint)) {
-            is Either.Left -> ProjectLookupResult.Error(resolution.value)
-            is Either.Right -> ProjectLookupResult.Found(resolution.value.project)
+            is OperationResult.Failure -> ProjectLookupResult.Error(resolution.error)
+            is OperationResult.Success -> ProjectLookupResult.Found(resolution.value.project)
         }
     }
 
@@ -248,8 +253,8 @@ class PsiLocatorService {
     ): PsiLookupResult {
         return ReadAction.compute<PsiLookupResult, Throwable> {
             val resolution = when (val res = resolveFileAndProject(filePath, projectHint)) {
-                is Either.Left -> return@compute PsiLookupResult.Error(res.value)
-                is Either.Right -> res.value
+                is OperationResult.Failure -> return@compute PsiLookupResult.Error(res.error)
+                is OperationResult.Success -> res.value
             }
 
             val (project, virtualFile) = resolution
@@ -258,27 +263,35 @@ class PsiLocatorService {
             val isInProject = ProjectRootManager.getInstance(project).fileIndex.isInContent(virtualFile)
             if (!isInProject) {
                 return@compute PsiLookupResult.Error(
-                    "File '$filePath' is not part of project '${project.name}'. " +
-                    "Please specify correct project name."
+                    OperationError.fileNotInProject(
+                        filePath,
+                        listOf(project.name)
+                    )
                 )
             }
 
             val psiFile = PsiManager.getInstance(project).findFile(virtualFile)
             if (psiFile == null) {
                 logger.warn("Cannot create PSI for file: $filePath")
-                return@compute PsiLookupResult.Error("Cannot parse file: $filePath")
+                return@compute PsiLookupResult.Error(
+                    OperationError.internalError("Cannot parse file: $filePath")
+                )
             }
 
             val document = PsiDocumentManager.getInstance(project).getDocument(psiFile)
             if (document == null) {
                 logger.warn("No document for file: $filePath")
-                return@compute PsiLookupResult.Error("Cannot get document for file: $filePath")
+                return@compute PsiLookupResult.Error(
+                    OperationError.internalError("Cannot get document for file: $filePath")
+                )
             }
 
             // Validate line bounds
             if (line < 1 || line > document.lineCount) {
                 return@compute PsiLookupResult.Error(
-                    "Line $line out of bounds (valid: 1-${document.lineCount})"
+                    OperationError.locationOutOfBounds(
+                        "Line $line out of bounds (valid: 1-${document.lineCount})"
+                    )
                 )
             }
 
@@ -289,7 +302,9 @@ class PsiLocatorService {
             // Validate column bounds
             if (column < 1 || column > maxColumn) {
                 return@compute PsiLookupResult.Error(
-                    "Column $column out of bounds for line $line (valid: 1-$maxColumn)"
+                    OperationError.locationOutOfBounds(
+                        "Column $column out of bounds for line $line (valid: 1-$maxColumn)"
+                    )
                 )
             }
 
@@ -298,7 +313,7 @@ class PsiLocatorService {
 
             if (elementAtOffset == null) {
                 return@compute PsiLookupResult.Error(
-                    "No code element found at $filePath:$line:$column"
+                    OperationError.elementNotFound(filePath, line, column)
                 )
             }
 

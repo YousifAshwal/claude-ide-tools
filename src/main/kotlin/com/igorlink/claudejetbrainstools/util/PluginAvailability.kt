@@ -4,6 +4,31 @@ import com.intellij.openapi.diagnostic.Logger
 import java.util.concurrent.ConcurrentHashMap
 
 /**
+ * Functional interface for loading classes by name.
+ *
+ * This abstraction allows the plugin availability checker to be tested
+ * without mocking core JDK classes like Class.forName().
+ */
+fun interface ClassLoadingStrategy {
+    /**
+     * Attempts to load a class by its fully qualified name.
+     *
+     * @param className The fully qualified class name
+     * @return The loaded Class object
+     * @throws ClassNotFoundException if the class is not found
+     */
+    @Throws(ClassNotFoundException::class)
+    fun loadClass(className: String): Class<*>
+}
+
+/**
+ * Default class loading strategy that uses the standard Class.forName().
+ */
+object DefaultClassLoadingStrategy : ClassLoadingStrategy {
+    override fun loadClass(className: String): Class<*> = Class.forName(className)
+}
+
+/**
  * Utility for checking the availability of language plugins in the current IDE.
  *
  * This singleton centralizes all plugin availability checks across language handlers,
@@ -27,11 +52,22 @@ import java.util.concurrent.ConcurrentHashMap
  * Results are cached permanently since plugin availability does not change during runtime.
  * The cache uses a thread-safe ConcurrentHashMap for safe concurrent access.
  *
+ * ## Testing
+ * Use [setClassLoadingStrategy] to inject a test double for unit testing.
+ *
  * @see SupportedLanguage The enumeration of supported languages
+ * @see ClassLoadingStrategy For testing with a custom class loader
  */
 object PluginAvailability {
 
     private val logger = Logger.getInstance(PluginAvailability::class.java)
+
+    /**
+     * The strategy used to load classes for plugin detection.
+     * Can be overridden for testing purposes via [setClassLoadingStrategy].
+     */
+    @Volatile
+    private var classLoadingStrategy: ClassLoadingStrategy = DefaultClassLoadingStrategy
 
     /**
      * Map of language to the fully qualified class name used for plugin detection.
@@ -87,7 +123,7 @@ object PluginAvailability {
     }
 
     /**
-     * Performs the actual plugin availability check using Class.forName().
+     * Performs the actual plugin availability check using the configured class loading strategy.
      *
      * This method is called once per language and the result is cached.
      * It attempts to load the PSI file class for the language to determine
@@ -105,11 +141,15 @@ object PluginAvailability {
         }
 
         return try {
-            Class.forName(className)
+            classLoadingStrategy.loadClass(className)
             logger.debug("Plugin available for $language (found $className)")
             true
         } catch (e: ClassNotFoundException) {
             logger.debug("Plugin not available for $language ($className not found)")
+            false
+        } catch (e: LinkageError) {
+            // Handles NoClassDefFoundError, UnsatisfiedLinkError, etc.
+            logger.debug("Plugin not available for $language (linkage error: ${e.message})")
             false
         } catch (e: Exception) {
             logger.warn("Error checking plugin availability for $language: ${e.message}")
@@ -118,7 +158,7 @@ object PluginAvailability {
     }
 
     /**
-     * Clears the availability cache.
+     * Clears the availability cache and resets the class loading strategy.
      *
      * This is primarily useful for testing purposes. In production,
      * plugin availability does not change during runtime, so cache
@@ -126,6 +166,19 @@ object PluginAvailability {
      */
     fun clearCache() {
         availabilityCache.clear()
+        classLoadingStrategy = DefaultClassLoadingStrategy
+    }
+
+    /**
+     * Sets a custom class loading strategy.
+     *
+     * This method is intended for testing purposes to inject a mock
+     * class loader without needing to mock the JDK's Class.forName().
+     *
+     * @param strategy The class loading strategy to use
+     */
+    fun setClassLoadingStrategy(strategy: ClassLoadingStrategy) {
+        classLoadingStrategy = strategy
     }
 
     /**

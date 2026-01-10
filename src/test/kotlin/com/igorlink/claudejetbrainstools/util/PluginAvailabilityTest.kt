@@ -11,10 +11,14 @@ import org.junit.jupiter.api.Assertions.*
  * - isAvailable() method for different language types
  * - Caching behavior
  * - Class path mappings for all supported languages
+ *
+ * Uses [ClassLoadingStrategy] injection for reliable testing without
+ * mocking core JDK classes.
  */
 class PluginAvailabilityTest {
 
     private lateinit var mockLogger: Logger
+    private lateinit var mockClassLoadingStrategy: ClassLoadingStrategy
 
     @BeforeEach
     fun setUp() {
@@ -27,12 +31,15 @@ class PluginAvailabilityTest {
         mockkStatic(Logger::class)
         every { Logger.getInstance(any<Class<*>>()) } returns mockLogger
         every { Logger.getInstance(any<String>()) } returns mockLogger
+
+        // Create mock class loading strategy
+        mockClassLoadingStrategy = mockk()
     }
 
     @AfterEach
     fun tearDown() {
         unmockkAll()
-        // Clear cache after each test for clean state
+        // Clear cache after each test for clean state (also resets strategy)
         PluginAvailability.clearCache()
     }
 
@@ -59,9 +66,9 @@ class PluginAvailabilityTest {
 
         @Test
         fun `isAvailable returns true when plugin class exists`() {
-            // Arrange - mock Class.forName to return successfully for Kotlin
-            mockkStatic(Class::class)
-            every { Class.forName("org.jetbrains.kotlin.psi.KtFile") } returns Any::class.java
+            // Arrange - mock strategy to return successfully for Kotlin
+            every { mockClassLoadingStrategy.loadClass("org.jetbrains.kotlin.psi.KtFile") } returns Any::class.java
+            PluginAvailability.setClassLoadingStrategy(mockClassLoadingStrategy)
 
             // Act
             val result = PluginAvailability.isAvailable(SupportedLanguage.KOTLIN)
@@ -69,15 +76,15 @@ class PluginAvailabilityTest {
             // Assert
             assertTrue(result, "Should return true when plugin class exists")
 
-            // Verify Class.forName was called
-            verify { Class.forName("org.jetbrains.kotlin.psi.KtFile") }
+            // Verify loadClass was called
+            verify { mockClassLoadingStrategy.loadClass("org.jetbrains.kotlin.psi.KtFile") }
         }
 
         @Test
         fun `isAvailable returns false when plugin class does not exist`() {
-            // Arrange - mock Class.forName to throw ClassNotFoundException
-            mockkStatic(Class::class)
-            every { Class.forName("org.jetbrains.kotlin.psi.KtFile") } throws ClassNotFoundException("Class not found")
+            // Arrange - mock strategy to throw ClassNotFoundException
+            every { mockClassLoadingStrategy.loadClass("org.jetbrains.kotlin.psi.KtFile") } throws ClassNotFoundException("Class not found")
+            PluginAvailability.setClassLoadingStrategy(mockClassLoadingStrategy)
 
             // Act
             val result = PluginAvailability.isAvailable(SupportedLanguage.KOTLIN)
@@ -87,10 +94,10 @@ class PluginAvailabilityTest {
         }
 
         @Test
-        fun `isAvailable returns false when Class forName throws generic exception`() {
-            // Arrange - mock Class.forName to throw a generic exception
-            mockkStatic(Class::class)
-            every { Class.forName("org.jetbrains.kotlin.psi.KtFile") } throws RuntimeException("Unexpected error")
+        fun `isAvailable returns false when loadClass throws generic exception`() {
+            // Arrange - mock strategy to throw a generic exception
+            every { mockClassLoadingStrategy.loadClass("org.jetbrains.kotlin.psi.KtFile") } throws RuntimeException("Unexpected error")
+            PluginAvailability.setClassLoadingStrategy(mockClassLoadingStrategy)
 
             // Act
             val result = PluginAvailability.isAvailable(SupportedLanguage.KOTLIN)
@@ -108,8 +115,8 @@ class PluginAvailabilityTest {
         @Test
         fun `isAvailable caches results - second call uses cache`() {
             // Arrange
-            mockkStatic(Class::class)
-            every { Class.forName("org.jetbrains.kotlin.psi.KtFile") } returns Any::class.java
+            every { mockClassLoadingStrategy.loadClass("org.jetbrains.kotlin.psi.KtFile") } returns Any::class.java
+            PluginAvailability.setClassLoadingStrategy(mockClassLoadingStrategy)
 
             // Act - call twice
             val result1 = PluginAvailability.isAvailable(SupportedLanguage.KOTLIN)
@@ -119,15 +126,15 @@ class PluginAvailabilityTest {
             assertTrue(result1)
             assertTrue(result2)
 
-            // Verify Class.forName was called only once (second call used cache)
-            verify(exactly = 1) { Class.forName("org.jetbrains.kotlin.psi.KtFile") }
+            // Verify loadClass was called only once (second call used cache)
+            verify(exactly = 1) { mockClassLoadingStrategy.loadClass("org.jetbrains.kotlin.psi.KtFile") }
         }
 
         @Test
         fun `isAvailable caches false results too`() {
             // Arrange
-            mockkStatic(Class::class)
-            every { Class.forName("com.jetbrains.python.psi.PyFile") } throws ClassNotFoundException("Not found")
+            every { mockClassLoadingStrategy.loadClass("com.jetbrains.python.psi.PyFile") } throws ClassNotFoundException("Not found")
+            PluginAvailability.setClassLoadingStrategy(mockClassLoadingStrategy)
 
             // Act - call twice
             val result1 = PluginAvailability.isAvailable(SupportedLanguage.PYTHON)
@@ -137,39 +144,50 @@ class PluginAvailabilityTest {
             assertFalse(result1)
             assertFalse(result2)
 
-            // Verify Class.forName was called only once
-            verify(exactly = 1) { Class.forName("com.jetbrains.python.psi.PyFile") }
+            // Verify loadClass was called only once
+            verify(exactly = 1) { mockClassLoadingStrategy.loadClass("com.jetbrains.python.psi.PyFile") }
         }
 
         @Test
         fun `clearCache clears the cache allowing fresh lookup`() {
-            // Arrange
-            mockkStatic(Class::class)
-            every { Class.forName("org.jetbrains.kotlin.psi.KtFile") } returns Any::class.java
+            // Arrange - first strategy
+            val firstStrategy: ClassLoadingStrategy = mockk()
+            every { firstStrategy.loadClass("org.jetbrains.kotlin.psi.KtFile") } returns Any::class.java
+            PluginAvailability.setClassLoadingStrategy(firstStrategy)
 
             // Act - call first time
             PluginAvailability.isAvailable(SupportedLanguage.KOTLIN)
 
-            // Clear cache
+            // Clear cache (this also resets strategy to default)
             PluginAvailability.clearCache()
+
+            // Set up new strategy
+            val secondStrategy: ClassLoadingStrategy = mockk()
+            every { secondStrategy.loadClass("org.jetbrains.kotlin.psi.KtFile") } returns Any::class.java
+            PluginAvailability.setClassLoadingStrategy(secondStrategy)
 
             // Call again
             PluginAvailability.isAvailable(SupportedLanguage.KOTLIN)
 
-            // Verify Class.forName was called twice (cache was cleared)
-            verify(exactly = 2) { Class.forName("org.jetbrains.kotlin.psi.KtFile") }
+            // Verify both strategies were called once each
+            verify(exactly = 1) { firstStrategy.loadClass("org.jetbrains.kotlin.psi.KtFile") }
+            verify(exactly = 1) { secondStrategy.loadClass("org.jetbrains.kotlin.psi.KtFile") }
         }
 
         @Test
         fun `JAVA and UNKNOWN do not use cache (direct return)`() {
+            // Arrange - set a mock that would fail if called
+            every { mockClassLoadingStrategy.loadClass(any()) } throws RuntimeException("Should not be called")
+            PluginAvailability.setClassLoadingStrategy(mockClassLoadingStrategy)
+
             // Act - call multiple times
             repeat(3) {
                 PluginAvailability.isAvailable(SupportedLanguage.JAVA)
                 PluginAvailability.isAvailable(SupportedLanguage.UNKNOWN)
             }
 
-            // No Class.forName should be called for JAVA and UNKNOWN
-            // (we're not mocking Class.forName here, so if it was called it would fail)
+            // Verify loadClass was never called for JAVA or UNKNOWN
+            verify(exactly = 0) { mockClassLoadingStrategy.loadClass(any()) }
         }
     }
 
@@ -237,9 +255,9 @@ class PluginAvailabilityTest {
 
         @Test
         fun `all languages with class paths have corresponding availability check`() {
-            // Arrange - mock Class.forName for all languages
-            mockkStatic(Class::class)
-            every { Class.forName(any()) } returns Any::class.java
+            // Arrange - mock loadClass to return successfully for any class
+            every { mockClassLoadingStrategy.loadClass(any()) } returns Any::class.java
+            PluginAvailability.setClassLoadingStrategy(mockClassLoadingStrategy)
 
             // Test that all languages with class paths can be checked
             val languagesWithClassPaths = listOf(
@@ -254,6 +272,7 @@ class PluginAvailabilityTest {
             for (language in languagesWithClassPaths) {
                 // Clear cache between checks
                 PluginAvailability.clearCache()
+                PluginAvailability.setClassLoadingStrategy(mockClassLoadingStrategy)
 
                 val classPath = PluginAvailability.getClassPath(language)
                 assertNotNull(classPath, "Language $language should have a class path")
@@ -272,10 +291,10 @@ class PluginAvailabilityTest {
         @Test
         fun `isAvailable checks different languages independently`() {
             // Arrange - mock different results for different classes
-            mockkStatic(Class::class)
-            every { Class.forName("org.jetbrains.kotlin.psi.KtFile") } returns Any::class.java
-            every { Class.forName("com.jetbrains.python.psi.PyFile") } throws ClassNotFoundException()
-            every { Class.forName("com.goide.psi.GoFile") } returns Any::class.java
+            every { mockClassLoadingStrategy.loadClass("org.jetbrains.kotlin.psi.KtFile") } returns Any::class.java
+            every { mockClassLoadingStrategy.loadClass("com.jetbrains.python.psi.PyFile") } throws ClassNotFoundException()
+            every { mockClassLoadingStrategy.loadClass("com.goide.psi.GoFile") } returns Any::class.java
+            PluginAvailability.setClassLoadingStrategy(mockClassLoadingStrategy)
 
             // Act & Assert
             assertTrue(PluginAvailability.isAvailable(SupportedLanguage.KOTLIN))
@@ -290,8 +309,8 @@ class PluginAvailabilityTest {
         @Test
         fun `multiple threads can safely check availability concurrently`() {
             // Arrange
-            mockkStatic(Class::class)
-            every { Class.forName(any()) } returns Any::class.java
+            every { mockClassLoadingStrategy.loadClass(any()) } returns Any::class.java
+            PluginAvailability.setClassLoadingStrategy(mockClassLoadingStrategy)
 
             // Act - run concurrent checks
             val threads = mutableListOf<Thread>()
@@ -327,8 +346,8 @@ class PluginAvailabilityTest {
         @Test
         fun `isAvailable handles LinkageError gracefully`() {
             // Arrange - mock to throw LinkageError (extends Error, not Exception)
-            mockkStatic(Class::class)
-            every { Class.forName("org.jetbrains.kotlin.psi.KtFile") } throws NoClassDefFoundError("Linkage error")
+            every { mockClassLoadingStrategy.loadClass("org.jetbrains.kotlin.psi.KtFile") } throws NoClassDefFoundError("Linkage error")
+            PluginAvailability.setClassLoadingStrategy(mockClassLoadingStrategy)
 
             // Act
             val result = PluginAvailability.isAvailable(SupportedLanguage.KOTLIN)
@@ -352,6 +371,84 @@ class PluginAvailabilityTest {
             // Fresh state after setUp's clearCache()
             assertDoesNotThrow {
                 PluginAvailability.clearCache()
+            }
+        }
+
+        @Test
+        fun `clearCache resets class loading strategy to default`() {
+            // Arrange - set a custom strategy
+            every { mockClassLoadingStrategy.loadClass(any()) } returns Any::class.java
+            PluginAvailability.setClassLoadingStrategy(mockClassLoadingStrategy)
+
+            // Verify custom strategy is being used
+            PluginAvailability.isAvailable(SupportedLanguage.KOTLIN)
+            verify(exactly = 1) { mockClassLoadingStrategy.loadClass(any()) }
+
+            // Clear cache (resets to default strategy)
+            PluginAvailability.clearCache()
+
+            // Now availability check should use the default strategy (Class.forName)
+            // Since Kotlin plugin class likely doesn't exist in test environment,
+            // we just verify our mock is no longer called
+            clearMocks(mockClassLoadingStrategy)
+
+            // This will use the default strategy - don't fail if class not found
+            try {
+                PluginAvailability.isAvailable(SupportedLanguage.KOTLIN)
+            } catch (e: Exception) {
+                // OK - default strategy might throw, but our mock should not be called
+            }
+
+            // Verify our mock was NOT called after clearCache
+            verify(exactly = 0) { mockClassLoadingStrategy.loadClass(any()) }
+        }
+
+        @Test
+        fun `setClassLoadingStrategy replaces previous strategy`() {
+            // Arrange - first strategy returns true
+            val firstStrategy: ClassLoadingStrategy = mockk()
+            every { firstStrategy.loadClass(any()) } returns Any::class.java
+
+            // Second strategy throws (not found)
+            val secondStrategy: ClassLoadingStrategy = mockk()
+            every { secondStrategy.loadClass(any()) } throws ClassNotFoundException()
+
+            // Act - use first strategy
+            PluginAvailability.setClassLoadingStrategy(firstStrategy)
+            val firstResult = PluginAvailability.isAvailable(SupportedLanguage.KOTLIN)
+
+            // Clear cache to allow re-check
+            PluginAvailability.clearCache()
+
+            // Use second strategy
+            PluginAvailability.setClassLoadingStrategy(secondStrategy)
+            val secondResult = PluginAvailability.isAvailable(SupportedLanguage.KOTLIN)
+
+            // Assert
+            assertTrue(firstResult, "First strategy should return true")
+            assertFalse(secondResult, "Second strategy should return false")
+        }
+    }
+
+    // ==================== DefaultClassLoadingStrategy Tests ====================
+
+    @Nested
+    inner class DefaultClassLoadingStrategyTests {
+
+        @Test
+        fun `DefaultClassLoadingStrategy loads existing class successfully`() {
+            // Act - try to load a class that definitely exists
+            val loadedClass = DefaultClassLoadingStrategy.loadClass("java.lang.String")
+
+            // Assert
+            assertEquals(String::class.java, loadedClass)
+        }
+
+        @Test
+        fun `DefaultClassLoadingStrategy throws ClassNotFoundException for missing class`() {
+            // Act & Assert
+            assertThrows<ClassNotFoundException> {
+                DefaultClassLoadingStrategy.loadClass("com.nonexistent.FakeClass")
             }
         }
     }
