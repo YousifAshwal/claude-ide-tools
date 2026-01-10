@@ -52,3 +52,6 @@ mcp-server/coverage/
 
 ### Misc ###
 nul
+
+### Generated files ###
+src/main/resources/version.properties
