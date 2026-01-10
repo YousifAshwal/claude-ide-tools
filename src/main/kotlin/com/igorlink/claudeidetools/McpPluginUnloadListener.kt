@@ -1,29 +1,35 @@
 package com.igorlink.claudeidetools
 
 import com.igorlink.claudeidetools.services.McpAutoRegistrationService
+import com.igorlink.claudeidetools.services.McpHttpServerService
+import com.igorlink.claudeidetools.util.IdeDetector
 import com.igorlink.claudeidetools.util.NotificationHelper
 import com.intellij.ide.plugins.DynamicPluginListener
 import com.intellij.ide.plugins.IdeaPluginDescriptor
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 
 /**
- * Listener for dynamic plugin unload and disable events.
+ * Listener for dynamic plugin load/unload events.
  *
  * IntelliJ supports dynamic plugin loading/unloading without IDE restart.
- * This listener handles cleanup when the MCP Bridge plugin is:
- * - Disabled via Settings > Plugins
- * - Uninstalled
- * - Updated (special handling to avoid unnecessary unregistration)
+ * This listener handles:
  *
- * ## Cleanup Actions
- * When the plugin is disabled or uninstalled (not updated), this listener:
+ * ## On Load (pluginLoaded)
+ * When the plugin is installed or enabled dynamically:
+ * 1. Starts the HTTP server for refactoring requests
+ * 2. Registers MCP servers with Claude Code configuration
+ *
+ * ## On Unload (beforePluginUnload)
+ * When the plugin is disabled or uninstalled (not updated):
  * 1. Removes MCP server entries from Claude Code configuration
  * 2. Shows a notification about the unregistration
  *
  * The extracted server files are NOT deleted - only the config entries are removed.
  *
- * @see McpAutoRegistrationService.unregister The method called to clean up config
+ * @see McpAutoRegistrationService Handles Claude Code configuration
+ * @see McpHttpServerService Manages HTTP server lifecycle
  */
 class McpPluginUnloadListener : DynamicPluginListener {
     private val logger = Logger.getInstance(McpPluginUnloadListener::class.java)
@@ -31,6 +37,46 @@ class McpPluginUnloadListener : DynamicPluginListener {
     companion object {
         /** The plugin ID as declared in plugin.xml. */
         const val PLUGIN_ID = "com.igorlink.claudeidetools"
+    }
+
+    /**
+     * Called after a plugin has been loaded dynamically.
+     *
+     * Initializes the plugin by starting the HTTP server and registering
+     * MCP servers with Claude Code. This handles the case when the plugin
+     * is installed or enabled without restarting the IDE.
+     *
+     * @param pluginDescriptor Descriptor of the plugin that was loaded
+     * @param isUpdate `true` if the plugin was updated from a previous version
+     */
+    override fun pluginLoaded(pluginDescriptor: IdeaPluginDescriptor) {
+        if (pluginDescriptor.pluginId.idString != PLUGIN_ID) {
+            return
+        }
+
+        val ide = IdeDetector.detect()
+        logger.info("MCP Bridge: Plugin loaded dynamically in ${ide.displayName}")
+
+        // Start HTTP server
+        try {
+            val serverService = service<McpHttpServerService>()
+            serverService.start()
+            logger.info("MCP Bridge: HTTP server started")
+        } catch (e: Exception) {
+            logger.error("MCP Bridge: Failed to start HTTP server", e)
+        }
+
+        // Register MCP servers in background
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                val registrationService = service<McpAutoRegistrationService>()
+                val result = registrationService.ensureRegistered()
+                logger.info("MCP Bridge: Registration result: $result")
+                registrationService.showRegistrationNotification(result)
+            } catch (e: Exception) {
+                logger.error("MCP Bridge: Error during MCP registration", e)
+            }
+        }
     }
 
     /**

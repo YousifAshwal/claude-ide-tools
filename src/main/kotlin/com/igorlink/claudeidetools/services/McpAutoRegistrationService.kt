@@ -2,8 +2,6 @@ package com.igorlink.claudeidetools.services
 
 import com.igorlink.claudeidetools.util.IdeDetector
 import com.igorlink.claudeidetools.util.NotificationHelper
-import com.intellij.notification.NotificationType
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import java.io.File
@@ -386,7 +384,7 @@ class McpAutoRegistrationService {
      * Shows an appropriate IDE notification based on the registration result.
      *
      * - For [RegistrationResult.NEWLY_REGISTERED] and [RegistrationResult.UPDATED]:
-     *   Shows an information notification with a "Restart IDE" action button
+     *   Shows an information notification asking to restart Claude Code CLI
      * - For [RegistrationResult.ALREADY_REGISTERED]: No notification (silent)
      * - For [RegistrationResult.FAILED]: Shows a warning notification
      *
@@ -395,11 +393,8 @@ class McpAutoRegistrationService {
     fun showRegistrationNotification(result: RegistrationResult) {
         when (result) {
             RegistrationResult.NEWLY_REGISTERED, RegistrationResult.UPDATED -> {
-                NotificationHelper.showNotificationWithAction(
-                    content = "MCP Bridge installed. Restart IDE for Claude Code CLI to start using refactoring tools.",
-                    type = NotificationType.INFORMATION,
-                    actionText = "Restart IDE",
-                    action = { ApplicationManager.getApplication().restart() },
+                NotificationHelper.info(
+                    content = "MCP Bridge installed. Restart Claude Code CLI to start using refactoring tools.",
                     runOnEdt = true
                 )
             }
