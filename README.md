@@ -41,11 +41,11 @@ The plugin uses a **dual MCP server architecture** to provide optimal tool routi
          │ stdio                                  │                │                │
          │                                        │ HTTP           │ HTTP           │ HTTP
          ▼                                        │                │                │
-┌─────────────────────────────────────────────────┴────────────────┴────────────────┴───┐
-│                               MCP Servers (Node.js)                                   │
+┌─────────────────────────────────────────────────┴────────────────┴────────────────┴──┐
+│                               MCP Servers (Node.js)                                  │
 │  ┌──────────────────────────────────────┐  ┌──────────────────────────────────────┐  │
 │  │   Common Server                      │  │   IDE-Specific Servers               │  │
-│  │   (claude-ide-tools)           │  │   (claude-{ide}-tools)               │  │
+│  │   (claude-ide-tools)              │  │   (claude-{ide}-tools)                  │  │
 │  │                                      │  │                                      │  │
 │  │   Tools:                             │  │   Tools (per IDE):                   │  │
 │  │   - status (all IDEs)                │  │   - {ide}_move                       │  │
