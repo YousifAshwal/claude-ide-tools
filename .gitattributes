@@ -1,0 +1,19 @@
+# Handle line endings automatically for files detected as text
+# and leave binary files alone
+* text=auto eol=lf
+
+# Ensure shell scripts use LF (important for CI on Linux)
+*.sh text eol=lf
+gradlew text eol=lf
+
+# Ensure batch files use CRLF (for Windows)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files
+*.jar binary
+*.zip binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
