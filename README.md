@@ -318,6 +318,41 @@ const val CURRENT_VERSION = "0.3.x" // Increment this
 
 This ensures the plugin will overwrite the old server files on IDE restart.
 
+## CI/CD
+
+The project uses GitHub Actions for continuous integration and deployment.
+
+### Automated Builds
+
+Every push to `master`/`main` and every pull request triggers:
+- MCP server build (`npm ci` + `npm run build`)
+- Plugin build (`./gradlew buildPlugin`)
+- Test execution (`./gradlew test`)
+- Plugin verification (`./gradlew verifyPlugin`)
+
+### Publishing to JetBrains Marketplace
+
+Releases are triggered by pushing a version tag:
+
+```bash
+# Create and push a version tag
+git tag v0.3.10
+git push origin v0.3.10
+```
+
+This will:
+1. Build and verify the plugin
+2. Publish to JetBrains Marketplace
+3. Create a GitHub Release with the plugin zip attached
+
+### Setup Requirements
+
+To enable automatic publishing, add the `JETBRAINS_MARKETPLACE_TOKEN` secret to your GitHub repository:
+
+1. Get your token from [JetBrains Marketplace](https://plugins.jetbrains.com/author/me/tokens)
+2. Go to GitHub repo → **Settings** → **Secrets and variables** → **Actions**
+3. Add new secret: `JETBRAINS_MARKETPLACE_TOKEN` with your token value
+
 ## Troubleshooting
 
 ### "Cannot connect to IDE"
