@@ -10,9 +10,6 @@ import com.igorlink.claudeidetools.util.SourceRootType
 import com.igorlink.claudeidetools.util.SupportedLanguage
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.roots.ProjectRootManager
-import com.intellij.psi.JavaPsiFacade
-import com.intellij.psi.PsiDirectory
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.refactoring.move.moveFilesOrDirectories.MoveFilesOrDirectoriesProcessor
@@ -124,14 +121,7 @@ object KotlinMoveHandler {
         }
 
         // Determine source root type (main vs test)
-        val virtualFile = ReadAction.compute<com.intellij.openapi.vfs.VirtualFile?, Throwable> {
-            psiFile.virtualFile
-        }
-        val sourceRootType = if (virtualFile != null) {
-            SourceRootDetector.determineSourceRootType(project, virtualFile)
-        } else {
-            SourceRootType.NONE
-        }
+        val sourceRootType = SourceRootDetector.determineSourceRootType(project, psiFile)
 
         if (sourceRootType == SourceRootType.NONE) {
             return RefactoringResponse(
@@ -192,24 +182,15 @@ object KotlinMoveHandler {
     /**
      * Finds the PSI directory for a package in the appropriate source root type.
      *
+     * Uses [PsiReflectionUtils.findPackageDirectory] which first attempts to find the package
+     * via JavaPsiFacade (if Java plugin is available) and falls back to searching source roots
+     * directly. This avoids compile-time dependency on Java-specific classes.
+     *
      * @param isTestSource If true, looks in test sources; otherwise in main sources
      */
-    private fun findPackageDirectory(project: Project, packageName: String, isTestSource: Boolean): PsiDirectory? {
-        return ReadAction.compute<PsiDirectory?, Throwable> {
-            val existingPackage = JavaPsiFacade.getInstance(project).findPackage(packageName)
-            val directories = existingPackage?.directories ?: return@compute null
-
-            val fileIndex = ProjectRootManager.getInstance(project).fileIndex
-
-            // Find directory matching the same source root type as the original file
-            directories.firstOrNull { dir ->
-                val vFile = dir.virtualFile
-                if (isTestSource) {
-                    fileIndex.isInTestSourceContent(vFile)
-                } else {
-                    fileIndex.isInSourceContent(vFile) && !fileIndex.isInTestSourceContent(vFile)
-                }
-            }
+    private fun findPackageDirectory(project: Project, packageName: String, isTestSource: Boolean): com.intellij.psi.PsiDirectory? {
+        return ReadAction.compute<com.intellij.psi.PsiDirectory?, Throwable> {
+            PsiReflectionUtils.findPackageDirectory(project, packageName, isTestSource)
         }
     }
 

@@ -36,6 +36,27 @@
             topic="com.intellij.ide.plugins.DynamicPluginListener"/>
     </applicationListeners>
 
+    <!-- Extension points for language-specific refactoring handlers -->
+    <extensionPoints>
+        <!-- Extension point for move refactoring handlers.
+             Language plugins register handlers to support move operations.
+             Handlers are discovered at runtime, avoiding ClassNotFoundException
+             when language plugins are not available. -->
+        <extensionPoint
+            name="moveHandler"
+            interface="com.igorlink.claudeidetools.extensions.MoveRefactoringExtension"
+            dynamic="true"/>
+
+        <!-- Extension point for extract method refactoring handlers.
+             Language plugins register handlers to support extract method/function operations.
+             Handlers are discovered at runtime, avoiding ClassNotFoundException
+             when language plugins are not available. -->
+        <extensionPoint
+            name="extractMethodHandler"
+            interface="com.igorlink.claudeidetools.extensions.ExtractMethodRefactoringExtension"
+            dynamic="true"/>
+    </extensionPoints>
+
     <extensions defaultExtensionNs="com.intellij">
         <applicationService
             serviceImplementation="com.igorlink.claudeidetools.services.McpHttpServerService"/>
@@ -43,6 +64,8 @@
             serviceImplementation="com.igorlink.claudeidetools.services.PsiLocatorService"/>
         <applicationService
             serviceImplementation="com.igorlink.claudeidetools.services.McpAutoRegistrationService"/>
+        <applicationService
+            serviceImplementation="com.igorlink.claudeidetools.extensions.RefactoringExtensionService"/>
         <notificationGroup
             id="Claude IDE Tools"
             displayType="BALLOON"/>
