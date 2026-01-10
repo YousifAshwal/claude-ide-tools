@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.igorlink"
-version = "0.3.16"
+version = "0.3.17"
 
 /**
  * Extracts changelog entries from CHANGELOG.md and converts to HTML for JetBrains Marketplace.

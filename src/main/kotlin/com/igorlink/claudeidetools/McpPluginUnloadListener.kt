@@ -30,7 +30,7 @@ class McpPluginUnloadListener : DynamicPluginListener {
 
     companion object {
         /** The plugin ID as declared in plugin.xml. */
-        const val PLUGIN_ID = "com.igorlink.intellijmcp"
+        const val PLUGIN_ID = "com.igorlink.claudeidetools"
     }
 
     /**
