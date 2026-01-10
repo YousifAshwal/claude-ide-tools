@@ -13826,7 +13826,7 @@ async function callIde(port, endpoint, body) {
   return await response.json();
 }
 var server = new Server({
-  name: "claude-jetbrains-tools",
+  name: "claude-ide-tools",
   version: "0.3.0"
 }, {
   capabilities: {
@@ -14031,6 +14031,6 @@ ${formatted}` : result.message || "No usages found"
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("Claude JetBrains Tools (common) MCP server running");
+  console.error("Claude IDE Tools (common) MCP server running");
 }
 main().catch(console.error);

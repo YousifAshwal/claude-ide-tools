@@ -1,6 +1,6 @@
 <idea-plugin>
-    <id>com.igorlink.claudejetbrainstools</id>
-    <name>Claude JetBrains Tools</name>
+    <id>com.igorlink.claudeidetools</id>
+    <name>Claude IDE Tools</name>
     <vendor>Igor Link</vendor>
     <description><![CDATA[
         Exposes JetBrains IDE refactoring API via HTTP for Claude Code integration.
@@ -29,22 +29,22 @@
 
     <applicationListeners>
         <listener
-            class="com.igorlink.claudejetbrainstools.McpPluginStartup"
+            class="com.igorlink.claudeidetools.McpPluginStartup"
             topic="com.intellij.ide.AppLifecycleListener"/>
         <listener
-            class="com.igorlink.claudejetbrainstools.McpPluginUnloadListener"
+            class="com.igorlink.claudeidetools.McpPluginUnloadListener"
             topic="com.intellij.ide.plugins.DynamicPluginListener"/>
     </applicationListeners>
 
     <extensions defaultExtensionNs="com.intellij">
         <applicationService
-            serviceImplementation="com.igorlink.claudejetbrainstools.services.McpHttpServerService"/>
+            serviceImplementation="com.igorlink.claudeidetools.services.McpHttpServerService"/>
         <applicationService
-            serviceImplementation="com.igorlink.claudejetbrainstools.services.PsiLocatorService"/>
+            serviceImplementation="com.igorlink.claudeidetools.services.PsiLocatorService"/>
         <applicationService
-            serviceImplementation="com.igorlink.claudejetbrainstools.services.McpAutoRegistrationService"/>
+            serviceImplementation="com.igorlink.claudeidetools.services.McpAutoRegistrationService"/>
         <notificationGroup
-            id="Claude JetBrains Tools"
+            id="Claude IDE Tools"
             displayType="BALLOON"/>
     </extensions>
 </idea-plugin>

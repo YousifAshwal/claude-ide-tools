@@ -68,7 +68,7 @@ configurations.all {
 
 intellijPlatform {
     pluginConfiguration {
-        name = "Claude JetBrains Tools"
+        name = "Claude IDE Tools"
         version = project.version.toString()
         description = """
             <p>Exposes JetBrains IDE refactoring capabilities to Claude Code CLI via Model Context Protocol (MCP).</p>
@@ -91,7 +91,7 @@ intellijPlatform {
                 <li>JavaScript, TypeScript, Python, Go, Rust (rename/find usages)</li>
             </ul>
 
-            <p><a href="https://github.com/AiryLark/claude-jetbrains-tools">GitHub Repository</a></p>
+            <p><a href="https://github.com/AiryLark/claude-ide-tools">GitHub Repository</a></p>
         """.trimIndent()
 
         ideaVersion {

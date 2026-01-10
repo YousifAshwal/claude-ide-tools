@@ -1,4 +1,4 @@
-# Claude JetBrains Tools
+# Claude IDE Tools
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
@@ -45,7 +45,7 @@ The plugin uses a **dual MCP server architecture** to provide optimal tool routi
 │                               MCP Servers (Node.js)                                   │
 │  ┌──────────────────────────────────────┐  ┌──────────────────────────────────────┐  │
 │  │   Common Server                      │  │   IDE-Specific Servers               │  │
-│  │   (claude-jetbrains-tools)           │  │   (claude-{ide}-tools)               │  │
+│  │   (claude-ide-tools)           │  │   (claude-{ide}-tools)               │  │
 │  │                                      │  │                                      │  │
 │  │   Tools:                             │  │   Tools (per IDE):                   │  │
 │  │   - status (all IDEs)                │  │   - {ide}_move                       │  │
@@ -61,7 +61,7 @@ The plugin uses a **dual MCP server architecture** to provide optimal tool routi
 
 ### Dual Server Design
 
-**Common Server (`claude-jetbrains-tools`)**
+**Common Server (`claude-ide-tools`)**
 - Provides universal tools: `status`, `rename`, `find_usages`
 - Scans all IDE ports (8765-8777) to discover running IDEs
 - **Auto-routes requests** to the correct IDE based on file path
@@ -143,7 +143,7 @@ For other languages (JS/TS, Python, Go, Rust), these operations require editor c
 
 ### From Disk
 
-1. Download or build `claude-jetbrains-tools-*.zip` from `build/distributions/`
+1. Download or build `claude-ide-tools-*.zip` from `build/distributions/`
 
 2. In your JetBrains IDE:
    - Go to **Settings** -> **Plugins** -> **Gear icon** -> **Install Plugin from Disk...**
@@ -166,7 +166,7 @@ claude mcp list
 
 Should show both servers:
 ```
-claude-jetbrains-tools: node ~/.claude-jetbrains-tools/common-server.js - Connected
+claude-ide-tools: node ~/.claude-ide-tools/common-server.js - Connected
 claude-idea-tools: node ~/.claude-idea-tools/ide-server.js 8765 idea - Connected
 ```
 
@@ -189,9 +189,9 @@ Example config after registration:
 ```json
 {
   "mcpServers": {
-    "claude-jetbrains-tools": {
+    "claude-ide-tools": {
       "command": "node",
-      "args": ["~/.claude-jetbrains-tools/common-server.js"]
+      "args": ["~/.claude-ide-tools/common-server.js"]
     },
     "claude-idea-tools": {
       "command": "node",
@@ -203,7 +203,7 @@ Example config after registration:
 
 ### MCP Server Installation Directories
 
-- Common server: `~/.claude-jetbrains-tools/`
+- Common server: `~/.claude-ide-tools/`
 - IDE-specific servers: `~/.claude-{ide}-tools/` (e.g., `~/.claude-idea-tools/`, `~/.claude-webstorm-tools/`)
 
 ## Usage
@@ -252,12 +252,12 @@ Claude will use `find_usages` instead of grep, `rename` instead of find-replace,
 ./gradlew clean buildPlugin
 ```
 
-The built plugin will be at `build/distributions/claude-jetbrains-tools-*.zip`
+The built plugin will be at `build/distributions/claude-ide-tools-*.zip`
 
 ### Project Structure
 
 ```
-├── src/main/kotlin/com/igorlink/claudejetbrainstools/
+├── src/main/kotlin/com/igorlink/claudeidetools/
 │   ├── McpPluginStartup.kt              # Plugin entry point
 │   ├── server/
 │   │   └── McpHttpServer.kt             # HTTP server (Ktor)
@@ -323,7 +323,7 @@ This ensures the plugin will overwrite the old server files on IDE restart.
 ### "Cannot connect to IDE"
 
 1. Check if IDE is running
-2. Check if plugin is installed: **Settings** -> **Plugins** -> search "Claude JetBrains Tools"
+2. Check if plugin is installed: **Settings** -> **Plugins** -> search "Claude IDE Tools"
 3. Check HTTP server: `curl http://localhost:8765/status` (use appropriate port for your IDE)
 
 ### "File not found in any open project"
@@ -341,7 +341,7 @@ This ensures the plugin will overwrite the old server files on IDE restart.
 ### Old server version still in use
 
 1. Delete the server directories:
-   - `rm -rf ~/.claude-jetbrains-tools`
+   - `rm -rf ~/.claude-ide-tools`
    - `rm -rf ~/.claude-{ide}-tools`
 2. Restart IDE to reinstall
 3. Restart Claude Code CLI

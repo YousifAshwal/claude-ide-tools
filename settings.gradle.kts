@@ -1,1 +1,1 @@
-rootProject.name = "claude-jetbrains-tools"
+rootProject.name = "claude-ide-tools"

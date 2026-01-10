@@ -510,7 +510,7 @@ async function callIde<T>(port: number, endpoint: string, body?: unknown): Promi
  */
 const server = new Server(
   {
-    name: "claude-jetbrains-tools",
+    name: "claude-ide-tools",
     version: "0.3.0",
   },
   {
@@ -776,7 +776,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("Claude JetBrains Tools (common) MCP server running");
+  console.error("Claude IDE Tools (common) MCP server running");
 }
 
 main().catch(console.error);
