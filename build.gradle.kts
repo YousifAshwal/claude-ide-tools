@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.igorlink"
-version = "0.3.13"
+version = "0.3.14"
 
 repositories {
     mavenCentral()
@@ -96,7 +96,6 @@ intellijPlatform {
 
         ideaVersion {
             sinceBuild = "241"
-            untilBuild = "251.*"
         }
 
         vendor {
