@@ -10,7 +10,7 @@ jobs:
   create-tag:
     name: Create Release Tag
     runs-on: ubuntu-latest
-    if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'release')
+    if: github.event.pull_request.merged == true && (contains(github.event.pull_request.labels.*.name, 'release') || contains(github.event.pull_request.labels.*.name, 'Release'))
     permissions:
       contents: write
 
