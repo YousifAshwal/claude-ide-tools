@@ -291,6 +291,83 @@ object PsiReflectionUtils {
     }
 
     /**
+     * Finds a parent element of the specified type using reflection.
+     * Similar to PsiTreeUtil.getParentOfType but works with class names.
+     *
+     * @param element The starting PSI element
+     * @param className The fully qualified class name to search for
+     * @param strict If true, doesn't check the element itself; if false, checks element first
+     * @return The first matching parent, or null if not found
+     */
+    fun findParentOfType(element: PsiElement, className: String, strict: Boolean = false): PsiElement? {
+        val targetClass = getClassCached(className) ?: return null
+        var current: PsiElement? = if (strict) element.parent else element
+        while (current != null) {
+            if (targetClass.isInstance(current)) {
+                return current
+            }
+            current = current.parent
+        }
+        return null
+    }
+
+    /**
+     * Invokes a method on an object via reflection.
+     *
+     * @param obj The object to invoke the method on
+     * @param methodName The name of the method
+     * @param args The arguments to pass to the method
+     * @return The result of the method invocation, or null if failed
+     */
+    fun invokeMethod(obj: Any, methodName: String, vararg args: Any?): Any? {
+        return try {
+            val method = obj.javaClass.methods.find { it.name == methodName && it.parameterCount == args.size }
+                ?: return null
+            method.invoke(obj, *args)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Creates an instance of a class via reflection using the specified constructor arguments.
+     *
+     * @param className The fully qualified class name
+     * @param args The constructor arguments as pairs of (Class, value)
+     * @return The created instance, or null if failed
+     */
+    fun createInstance(className: String, vararg args: Pair<Class<*>, Any?>): Any? {
+        return try {
+            val clazz = getClassCached(className) ?: return null
+            val paramTypes = args.map { it.first }.toTypedArray()
+            val paramValues = args.map { it.second }.toTypedArray()
+            val constructor = clazz.getConstructor(*paramTypes)
+            constructor.newInstance(*paramValues)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Gets a static method result via reflection.
+     *
+     * @param className The fully qualified class name
+     * @param methodName The name of the static method
+     * @param paramTypes The parameter types
+     * @param args The arguments to pass
+     * @return The result of the method invocation, or null if failed
+     */
+    fun invokeStaticMethod(className: String, methodName: String, paramTypes: Array<Class<*>>, vararg args: Any?): Any? {
+        return try {
+            val clazz = getClassCached(className) ?: return null
+            val method = clazz.getMethod(methodName, *paramTypes)
+            method.invoke(null, *args)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
      * Fallback method to find package directory by searching source roots.
      *
      * This method converts the package name to a path (e.g., "com.example.utils" -> "com/example/utils")
