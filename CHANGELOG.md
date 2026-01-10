@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.18] - 2025-01-10
+
+### Fixed
+- **MCP Server Cleanup on Uninstall**: Fixed issue where MCP servers remained registered in Claude Code after plugin uninstall
+- Now uses `claude mcp remove` CLI command instead of direct JSON file editing
+- Registration now uses `claude mcp add` CLI command for proper integration with Claude Code
+
+### Changed
+- Removed direct JSON config file manipulation in favor of Claude Code CLI
+- Simplified `McpAutoRegistrationService` by removing unused JSON handling methods
+
 ## [0.3.16] - 2025-01-10
 
 ### Fixed

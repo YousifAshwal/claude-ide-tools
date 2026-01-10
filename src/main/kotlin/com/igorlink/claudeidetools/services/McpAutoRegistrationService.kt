@@ -6,8 +6,6 @@ import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.*
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -17,22 +15,15 @@ import java.nio.file.StandardCopyOption
  *
  * This service is responsible for:
  * - Extracting bundled MCP server JavaScript files to the user's home directory
- * - Registering the servers in Claude Code's configuration file
+ * - Registering the servers using Claude Code CLI (`claude mcp add`)
  * - Managing server versions and updates
- * - Handling unregistration when the plugin is disabled
+ * - Handling unregistration when the plugin is disabled (`claude mcp remove`)
  *
  * The plugin deploys two types of MCP servers:
  * 1. **Common server** (`claude-ide-tools`): Handles universal operations like status, rename, and find usages
  *    that work identically across all JetBrains IDEs
  * 2. **IDE-specific server** (e.g., `claude-idea-tools`): Handles operations like move and extract method
  *    that require IDE-specific port configuration
- *
- * ## Configuration Locations
- * The service looks for Claude Code configuration in the following locations (in order):
- * - `~/.claude.json`
- * - `~/.claude/claude.json`
- * - `~/AppData/Roaming/Claude/claude_desktop_config.json` (Windows)
- * - `~/.config/claude-code/config.json` (Linux)
  *
  * ## Usage Example
  * ```kotlin
@@ -47,10 +38,6 @@ import java.nio.file.StandardCopyOption
 @Service
 class McpAutoRegistrationService {
     private val logger = Logger.getInstance(McpAutoRegistrationService::class.java)
-    private val json = Json {
-        prettyPrint = true
-        ignoreUnknownKeys = true
-    }
 
     companion object {
         /** Resource path for the common MCP server JavaScript file bundled in the plugin. */
@@ -136,22 +123,6 @@ class McpAutoRegistrationService {
          * @return The port number for the current IDE
          */
         fun getPort(): Int = IdeDetector.getPort()
-
-        /**
-         * Returns a list of possible Claude Code configuration file locations.
-         *
-         * The order matters - the first existing file found will be used for reading and writing.
-         * If no file exists, the first location in the list will be used for creating a new config.
-         *
-         * @param homeDir The user's home directory path
-         * @return List of potential configuration file locations
-         */
-        private fun getConfigLocations(homeDir: String): List<File> = listOf(
-            File(homeDir, ".claude.json"),
-            File(homeDir, ".claude/claude.json"),
-            File(homeDir, "AppData/Roaming/Claude/claude_desktop_config.json"),
-            File(homeDir, ".config/claude-code/config.json")
-        )
     }
 
     /**
@@ -301,10 +272,9 @@ class McpAutoRegistrationService {
     }
 
     /**
-     * Registers both MCP servers in the Claude Code configuration file.
+     * Registers both MCP servers using Claude Code CLI.
      *
-     * Finds or creates the Claude Code configuration file and adds/updates
-     * the mcpServers entries for both the common and IDE-specific servers.
+     * Uses `claude mcp add` command to register both the common and IDE-specific servers.
      *
      * @param commonServerPath Absolute path to the extracted common server JS file
      * @param ideServerPath Absolute path to the extracted IDE-specific server JS file
@@ -314,148 +284,105 @@ class McpAutoRegistrationService {
         commonServerPath: String,
         ideServerPath: String
     ): RegistrationResult {
-        val homeDir = System.getProperty("user.home")
-        val configLocations = getConfigLocations(homeDir)
-
-        // Use first existing config file, or default to first location
-        val configFile = configLocations.find { it.exists() } ?: configLocations.first()
-
         return try {
-            updateClaudeConfigWithBothServers(configFile, commonServerPath, ideServerPath)
+            val ideServerName = getIdeMcpServerName()
+            val port = getPort()
+            val ideShortName = getIdeShortName()
+
+            // Register common server: claude mcp add -s user claude-ide-tools -- node <path>
+            val commonResult = runClaudeMcpAdd(
+                serverName = COMMON_SERVER_NAME,
+                serverPath = commonServerPath,
+                args = emptyList()
+            )
+
+            // Register IDE-specific server: claude mcp add -s user claude-idea-tools -- node <path> <port> <ide>
+            val ideResult = runClaudeMcpAdd(
+                serverName = ideServerName,
+                serverPath = ideServerPath,
+                args = listOf(port.toString(), ideShortName)
+            )
+
+            when {
+                !commonResult.success || !ideResult.success -> RegistrationResult.FAILED
+                commonResult.wasNew || ideResult.wasNew -> RegistrationResult.NEWLY_REGISTERED
+                commonResult.wasUpdated || ideResult.wasUpdated -> RegistrationResult.UPDATED
+                else -> RegistrationResult.ALREADY_REGISTERED
+            }
         } catch (e: Exception) {
-            logger.error("Failed to update Claude config at ${configFile.absolutePath}", e)
+            logger.error("Failed to register MCP servers via CLI", e)
             RegistrationResult.FAILED
         }
     }
 
     /**
-     * Builds an updated config JsonObject by copying all properties from existingConfig
-     * except "mcpServers", then adding the new mcpServers map.
-     *
-     * @param existingConfig The original config to copy properties from
-     * @param mcpServers The updated MCP servers map
-     * @param omitIfEmpty If true, mcpServers key is omitted when the map is empty
+     * Result of running `claude mcp add` command.
      */
-    private fun buildUpdatedConfig(
-        existingConfig: JsonObject,
-        mcpServers: Map<String, JsonElement>,
-        omitIfEmpty: Boolean = false
-    ): JsonObject {
-        return buildJsonObject {
-            existingConfig.forEach { (key, value) ->
-                if (key != "mcpServers") {
-                    put(key, value)
-                }
-            }
-            if (!omitIfEmpty || mcpServers.isNotEmpty()) {
-                put("mcpServers", JsonObject(mcpServers))
-            }
-        }
-    }
+    private data class McpAddResult(
+        val success: Boolean,
+        val wasNew: Boolean = false,
+        val wasUpdated: Boolean = false
+    )
 
     /**
-     * Updates the Claude Code configuration file with both MCP server entries.
+     * Registers an MCP server using Claude Code CLI.
      *
-     * Creates or modifies the mcpServers section in the config file:
-     * - **Common server** (`claude-ide-tools`): Configured with just the server path,
-     *   auto-discovers all running IDE instances
-     * - **IDE-specific server** (e.g., `claude-idea-tools`): Configured with server path,
-     *   port number, and IDE short name as arguments
+     * Executes: `claude mcp add -s user <name> -- node <path> <args...>`
      *
-     * @param configFile The Claude Code configuration file to update
-     * @param commonServerPath Absolute path to the common server JS file
-     * @param ideServerPath Absolute path to the IDE-specific server JS file
-     * @return [RegistrationResult] indicating what changes were made
+     * @param serverName The name for the MCP server
+     * @param serverPath Absolute path to the server JS file
+     * @param args Additional arguments for the server
+     * @return [McpAddResult] indicating the outcome
      */
-    private fun updateClaudeConfigWithBothServers(
-        configFile: File,
-        commonServerPath: String,
-        ideServerPath: String
-    ): RegistrationResult {
-        val normalizedCommonPath = commonServerPath.replace("\\", "/")
-        val normalizedIdePath = ideServerPath.replace("\\", "/")
-        val ideServerName = getIdeMcpServerName()
-        val port = getPort()
-        val ideShortName = getIdeShortName()
+    private fun runClaudeMcpAdd(
+        serverName: String,
+        serverPath: String,
+        args: List<String>
+    ): McpAddResult {
+        return try {
+            val normalizedPath = serverPath.replace("\\", "/")
+            val isWindows = System.getProperty("os.name").lowercase().contains("win")
 
-        // Read existing config or create new one
-        val existingConfig: JsonObject = if (configFile.exists()) {
-            try {
-                json.parseToJsonElement(configFile.readText()).jsonObject
-            } catch (e: Exception) {
-                logger.warn("Could not parse existing config, creating new one")
-                JsonObject(emptyMap())
+            // Build command: claude mcp add -s user <name> -- node <path> [args...]
+            val command = mutableListOf<String>()
+            if (isWindows) {
+                command.addAll(listOf("cmd", "/c"))
             }
-        } else {
-            JsonObject(emptyMap())
-        }
+            command.addAll(listOf("claude", "mcp", "add", "-s", "user", serverName, "--", "node", normalizedPath))
+            command.addAll(args)
 
-        // Get or create mcpServers object
-        val mcpServers = existingConfig["mcpServers"]?.jsonObject?.toMutableMap()
-            ?: mutableMapOf()
+            logger.info("Running: ${command.joinToString(" ")}")
 
-        var anyUpdated = false
-        var allAlreadyRegistered = true
+            val process = ProcessBuilder(command)
+                .redirectErrorStream(true)
+                .start()
 
-        // Check and update common server
-        val existingCommon = mcpServers[COMMON_SERVER_NAME]?.jsonObject
-        val commonArgs = existingCommon?.get("args")?.jsonArray
-        val existingCommonPath = commonArgs?.getOrNull(0)?.jsonPrimitive?.contentOrNull
+            val output = process.inputStream.bufferedReader().readText()
+            val exitCode = process.waitFor()
 
-        if (existingCommonPath != normalizedCommonPath) {
-            allAlreadyRegistered = false
-            if (existingCommon != null) anyUpdated = true
-
-            val commonConfig = buildJsonObject {
-                put("command", "node")
-                putJsonArray("args") {
-                    add(normalizedCommonPath)
+            when {
+                exitCode == 0 -> {
+                    val wasUpdated = output.contains("updated", ignoreCase = true) ||
+                            output.contains("replaced", ignoreCase = true)
+                    val wasNew = !wasUpdated && (output.contains("added", ignoreCase = true) ||
+                            output.contains("registered", ignoreCase = true))
+                    logger.info("MCP server '$serverName' registered: $output")
+                    McpAddResult(success = true, wasNew = wasNew, wasUpdated = wasUpdated)
+                }
+                output.contains("already exists", ignoreCase = true) ||
+                output.contains("already registered", ignoreCase = true) -> {
+                    logger.info("MCP server '$serverName' already registered")
+                    McpAddResult(success = true)
+                }
+                else -> {
+                    logger.warn("Failed to add MCP server '$serverName': $output (exit code: $exitCode)")
+                    McpAddResult(success = false)
                 }
             }
-            mcpServers[COMMON_SERVER_NAME] = commonConfig
-            logger.info("Common MCP server '$COMMON_SERVER_NAME' configured")
+        } catch (e: Exception) {
+            logger.error("Error running claude mcp add for '$serverName'", e)
+            McpAddResult(success = false)
         }
-
-        // Check and update IDE-specific server
-        val existingIde = mcpServers[ideServerName]?.jsonObject
-        val ideArgs = existingIde?.get("args")?.jsonArray
-        val existingIdePath = ideArgs?.getOrNull(0)?.jsonPrimitive?.contentOrNull
-        val existingIdePort = ideArgs?.getOrNull(1)?.jsonPrimitive?.contentOrNull
-        val existingIdeName = ideArgs?.getOrNull(2)?.jsonPrimitive?.contentOrNull
-
-        if (existingIdePath != normalizedIdePath ||
-            existingIdePort != port.toString() ||
-            existingIdeName != ideShortName
-        ) {
-            allAlreadyRegistered = false
-            if (existingIde != null) anyUpdated = true
-
-            val ideConfig = buildJsonObject {
-                put("command", "node")
-                putJsonArray("args") {
-                    add(normalizedIdePath)
-                    add(port.toString())
-                    add(ideShortName)
-                }
-            }
-            mcpServers[ideServerName] = ideConfig
-            logger.info("IDE-specific MCP server '$ideServerName' configured on port $port")
-        }
-
-        if (allAlreadyRegistered) {
-            logger.info("Both MCP servers already registered with correct paths")
-            return RegistrationResult.ALREADY_REGISTERED
-        }
-
-        // Build updated config
-        val updatedConfig = buildUpdatedConfig(existingConfig, mcpServers)
-
-        // Write config
-        configFile.parentFile?.mkdirs()
-        configFile.writeText(json.encodeToString(updatedConfig))
-
-        logger.info("MCP servers registered in ${configFile.absolutePath}")
-        return if (anyUpdated) RegistrationResult.UPDATED else RegistrationResult.NEWLY_REGISTERED
     }
 
     /**
@@ -496,58 +423,73 @@ class McpAutoRegistrationService {
      * Unregisters both MCP servers from the Claude Code configuration.
      *
      * This method is called when the plugin is disabled or uninstalled.
-     * It searches all possible Claude Code configuration file locations
-     * and removes the MCP server entries from each.
+     * It uses the Claude Code CLI to remove the MCP server entries.
      *
      * The extracted server files in the user's home directory are NOT deleted,
      * only the configuration entries are removed.
      *
-     * @return `true` if unregistration succeeded for all found config files,
-     *         `false` if any error occurred during unregistration
+     * @return `true` if unregistration succeeded, `false` if any error occurred
      */
     fun unregister(): Boolean {
-        val homeDir = System.getProperty("user.home")
-        val configLocations = getConfigLocations(homeDir)
         val ideServerName = getIdeMcpServerName()
         val serverNames = listOf(COMMON_SERVER_NAME, ideServerName)
 
         var allSucceeded = true
-        var anyFound = false
 
-        for (configFile in configLocations) {
-            if (!configFile.exists()) {
-                continue
-            }
-
-            try {
-                val existingConfig = json.parseToJsonElement(configFile.readText()).jsonObject
-                val mcpServers = existingConfig["mcpServers"]?.jsonObject?.toMutableMap()
-                    ?: continue
-
-                var removedAny = false
-                for (serverName in serverNames) {
-                    if (mcpServers.containsKey(serverName)) {
-                        mcpServers.remove(serverName)
-                        logger.info("MCP server '$serverName' removed from ${configFile.absolutePath}")
-                        removedAny = true
-                        anyFound = true
-                    }
-                }
-
-                if (removedAny) {
-                    val updatedConfig = buildUpdatedConfig(existingConfig, mcpServers, omitIfEmpty = true)
-                    configFile.writeText(json.encodeToString(updatedConfig))
-                }
-            } catch (e: Exception) {
-                logger.error("Failed to unregister MCP servers from ${configFile.absolutePath}", e)
+        for (serverName in serverNames) {
+            val success = runClaudeMcpRemove(serverName)
+            if (!success) {
                 allSucceeded = false
             }
         }
 
-        if (!anyFound) {
-            logger.info("MCP servers were not registered in any config file")
-        }
-
         return allSucceeded
+    }
+
+    /**
+     * Removes an MCP server from Claude Code configuration using the CLI.
+     *
+     * Executes `claude mcp remove <serverName> -s user` command to remove
+     * the server from the user-scoped configuration.
+     *
+     * @param serverName The name of the MCP server to remove
+     * @return `true` if the command succeeded or server didn't exist, `false` on error
+     */
+    private fun runClaudeMcpRemove(serverName: String): Boolean {
+        return try {
+            val isWindows = System.getProperty("os.name").lowercase().contains("win")
+            val command = if (isWindows) {
+                listOf("cmd", "/c", "claude", "mcp", "remove", serverName, "-s", "user")
+            } else {
+                listOf("claude", "mcp", "remove", serverName, "-s", "user")
+            }
+
+            logger.info("Running: ${command.joinToString(" ")}")
+
+            val process = ProcessBuilder(command)
+                .redirectErrorStream(true)
+                .start()
+
+            val output = process.inputStream.bufferedReader().readText()
+            val exitCode = process.waitFor()
+
+            if (exitCode == 0) {
+                logger.info("MCP server '$serverName' removed successfully")
+                true
+            } else {
+                // Exit code 1 might mean server doesn't exist - that's OK
+                if (output.contains("not found", ignoreCase = true) ||
+                    output.contains("does not exist", ignoreCase = true)) {
+                    logger.info("MCP server '$serverName' was not registered")
+                    true
+                } else {
+                    logger.warn("Failed to remove MCP server '$serverName': $output")
+                    false
+                }
+            }
+        } catch (e: Exception) {
+            logger.error("Error running claude mcp remove for '$serverName'", e)
+            false
+        }
     }
 }
