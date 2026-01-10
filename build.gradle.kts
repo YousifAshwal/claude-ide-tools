@@ -4,7 +4,7 @@ plugins {
     kotlin("plugin.serialization") version "1.9.25"
 }
 
-group = "com.igorlink.claudejetbrainstools"
+group = "com.igorlink"
 version = "0.3.10"
 
 repositories {
@@ -70,7 +70,29 @@ intellijPlatform {
     pluginConfiguration {
         name = "Claude JetBrains Tools"
         version = project.version.toString()
-        description = "Exposes IntelliJ refactoring API via HTTP for Claude Code integration"
+        description = """
+            <p>Exposes JetBrains IDE refactoring capabilities to Claude Code CLI via Model Context Protocol (MCP).</p>
+
+            <h3>Features</h3>
+            <ul>
+                <li><b>Semantic Rename</b> - Safely rename classes, methods, variables with automatic usage updates</li>
+                <li><b>Find Usages</b> - Find real code usages, not just text matches</li>
+                <li><b>Move Refactoring</b> - Move classes/files between packages with import updates</li>
+                <li><b>Extract Method</b> - Extract code blocks into new methods with parameter inference</li>
+            </ul>
+
+            <h3>How It Works</h3>
+            <p>The plugin starts an HTTP server and registers MCP servers in Claude Code config.
+            Claude then uses IDE's semantic understanding instead of text-based grep/search.</p>
+
+            <h3>Supported Languages</h3>
+            <ul>
+                <li>Java, Kotlin (full support)</li>
+                <li>JavaScript, TypeScript, Python, Go, Rust (rename/find usages)</li>
+            </ul>
+
+            <p><a href="https://github.com/AiryLark/claude-jetbrains-tools">GitHub Repository</a></p>
+        """.trimIndent()
 
         ideaVersion {
             sinceBuild = "241"
@@ -79,7 +101,36 @@ intellijPlatform {
 
         vendor {
             name = "Igor Link"
+            url = "https://github.com/AiryLark"
         }
+
+        changeNotes = """
+            <h3>0.3.10</h3>
+            <ul>
+                <li>Added unified error handling with typed error codes</li>
+                <li>Fixed plugin availability detection (LinkageError handling)</li>
+                <li>Improved testability with ClassLoadingStrategy injection</li>
+                <li>Added LanguageHandlerRegistry for centralized routing</li>
+                <li>Thread safety improvements (@Volatile for cached values)</li>
+            </ul>
+
+            <h3>0.3.9</h3>
+            <ul>
+                <li>Conditional tool registration based on implemented languages</li>
+                <li>Added IdeDetector and LanguageDetector tests</li>
+            </ul>
+
+            <h3>0.3.8</h3>
+            <ul>
+                <li>Initial public release</li>
+                <li>Support for rename, find_usages, move, extract_method</li>
+                <li>Auto-registration in Claude Code config</li>
+            </ul>
+        """.trimIndent()
+    }
+
+    publishing {
+        token = providers.environmentVariable("PUBLISH_TOKEN")
     }
 }
 
