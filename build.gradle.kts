@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.igorlink"
-version = "0.3.10"
+version = "0.3.13"
 
 repositories {
     mavenCentral()
@@ -131,6 +131,12 @@ intellijPlatform {
 
     publishing {
         token = providers.environmentVariable("PUBLISH_TOKEN")
+    }
+
+    pluginVerification {
+        ides {
+            ide(org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.IntellijIdeaCommunity, "2024.1")
+        }
     }
 }
 
