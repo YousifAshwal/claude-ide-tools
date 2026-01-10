@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.19] - 2025-01-10
+
+### Fixed
+- **MCP Server Cleanup on Uninstall**: Fixed issue where MCP servers remained registered in Claude Code after plugin uninstall
+- **Dynamic Plugin Loading**: Plugin now works correctly when installed/enabled without IDE restart
+
+### Changed
+- MCP registration now uses Claude Code CLI (`claude mcp add/remove`) instead of direct JSON file manipulation
+- Plugin no longer requires IDE restart - only Claude Code CLI restart needed
+- Notification message updated to reflect this (no more "Restart IDE" button)
+
+### Added
+- `pluginLoaded()` handler for dynamic plugin installation and enable
+
 ## [0.3.16] - 2025-01-10
 
 ### Fixed

@@ -1,0 +1,58 @@
+name: Auto Tag on Release PR
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - master
+
+jobs:
+  create-tag:
+    name: Create Release Tag
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true && (contains(github.event.pull_request.labels.*.name, 'release') || contains(github.event.pull_request.labels.*.name, 'Release'))
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version from build.gradle.kts
+        id: version
+        run: |
+          VERSION=$(grep -oP 'version\s*=\s*"\K[^"]+' build.gradle.kts | head -1)
+          if [ -z "$VERSION" ]; then
+            echo "Error: Could not extract version from build.gradle.kts"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
+
+      - name: Check if tag exists
+        id: check_tag
+        run: |
+          if git rev-parse "v${{ steps.version.outputs.VERSION }}" >/dev/null 2>&1; then
+            echo "TAG_EXISTS=true" >> $GITHUB_OUTPUT
+            echo "Tag v${{ steps.version.outputs.VERSION }} already exists"
+          else
+            echo "TAG_EXISTS=false" >> $GITHUB_OUTPUT
+            echo "Tag v${{ steps.version.outputs.VERSION }} does not exist"
+          fi
+
+      - name: Create and push tag
+        if: steps.check_tag.outputs.TAG_EXISTS == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ steps.version.outputs.VERSION }}" -m "Release ${{ steps.version.outputs.VERSION }}"
+          git push origin "v${{ steps.version.outputs.VERSION }}"
+          echo "Created and pushed tag v${{ steps.version.outputs.VERSION }}"
+
+      - name: Skip - tag exists
+        if: steps.check_tag.outputs.TAG_EXISTS == 'true'
+        run: |
+          echo "Skipping tag creation - v${{ steps.version.outputs.VERSION }} already exists"
+          echo "This may happen if the release workflow was already triggered manually"

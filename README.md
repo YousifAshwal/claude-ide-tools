@@ -362,41 +362,76 @@ Before releasing, add your changes to `CHANGELOG.md`:
 
 The changelog follows [Keep a Changelog](https://keepachangelog.com/) format.
 
+> **Note:** Only add versions to CHANGELOG that will be released to the marketplace. Do not add entries for intermediate dev commits — consolidate all changes into a single changelog entry when merging to `master`.
+
 #### 3. Update version in build.gradle.kts
 
 ```kotlin
 version = "0.3.17"
 ```
 
-#### 4. Create Pull Request
+#### 4. Create Pull Request with `release` label
 
-On GitHub, create a PR: `dev` → `master`
+On GitHub, create a PR: `dev` → `master` and add the **`release`** label.
 
-#### 5. After merge, create a version tag
+#### 5. Merge and Automatic Release
 
+When the PR is merged, the following happens automatically:
+1. The `auto-tag` workflow extracts the version from `build.gradle.kts`
+2. Creates and pushes a git tag `v{version}`
+3. The tag triggers the release workflow which:
+   - Verifies the tag is on `master` branch
+   - Builds and verifies the plugin
+   - Extracts changelog for the version from `CHANGELOG.md`
+   - Publishes to **JetBrains Marketplace** (with changelog)
+   - Creates **GitHub Release** (with changelog and plugin zip attached)
+
+### Plugin Verification
+
+A separate workflow verifies plugin compatibility against all supported IDEs:
+
+| IDE | Code |
+|-----|------|
+| IntelliJ IDEA Community | IC |
+| IntelliJ IDEA Ultimate | IU |
+| WebStorm | WS |
+| PhpStorm | PS |
+| PyCharm Professional | PY |
+| PyCharm Community | PC |
+| GoLand | GO |
+| RubyMine | RM |
+| CLion | CL |
+| Rider | RD |
+| RustRover | RR |
+| Android Studio | AS |
+
+**When it runs:**
+- Automatically on PRs to `master`
+- Manually via Actions → "Verify Plugin Compatibility" → Run workflow
+
+**Features:**
+- Each IDE runs in a separate job (avoids disk space issues)
+- All IDEs are checked even if some fail
+- Summary table with results at the end
+
+**Local verification:**
 ```bash
-git checkout master
-git pull
-git tag v0.3.17
-git push origin v0.3.17
+# Verify against specific IDE
+./gradlew verifyPlugin -Pverify.ide.type=WS -Pverify.ide.version=2024.1
 ```
-
-#### 6. Automatic Release
-
-The tag push triggers the release workflow which:
-1. Verifies the tag is on `master` branch
-2. Builds and verifies the plugin
-3. Extracts changelog for the version from `CHANGELOG.md`
-4. Publishes to **JetBrains Marketplace** (with changelog)
-5. Creates **GitHub Release** (with changelog and plugin zip attached)
 
 ### Setup Requirements
 
-To enable automatic publishing, add the `JETBRAINS_MARKETPLACE_TOKEN` secret to your GitHub repository:
+To enable automatic releases:
 
-1. Get your token from [JetBrains Marketplace](https://plugins.jetbrains.com/author/me/tokens)
-2. Go to GitHub repo → **Settings** → **Secrets and variables** → **Actions**
-3. Add new secret: `JETBRAINS_MARKETPLACE_TOKEN` with your token value
+1. **Create `release` label** in your GitHub repository:
+   - Go to **Issues** → **Labels** → **New label**
+   - Name: `release`, Color: any (e.g., green)
+
+2. **Add JetBrains Marketplace token**:
+   - Get your token from [JetBrains Marketplace](https://plugins.jetbrains.com/author/me/tokens)
+   - Go to GitHub repo → **Settings** → **Secrets and variables** → **Actions**
+   - Add new secret: `JETBRAINS_MARKETPLACE_TOKEN` with your token value
 
 ## Troubleshooting
 

@@ -3,16 +3,14 @@ package com.igorlink.claudeidetools.handlers.languages
 import com.igorlink.claudeidetools.model.ExtractMethodRequest
 import com.igorlink.claudeidetools.model.RefactoringResponse
 import com.igorlink.claudeidetools.util.PluginAvailability
+import com.igorlink.claudeidetools.util.PsiReflectionUtils
 import com.igorlink.claudeidetools.util.RefactoringExecutor
 import com.igorlink.claudeidetools.util.SupportedLanguage
-import com.intellij.codeInsight.CodeInsightUtil
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
-import com.intellij.psi.PsiJavaFile
-import com.intellij.refactoring.extractMethod.ExtractMethodProcessor
 
 /**
  * Handler for Java extract method refactoring operations.
@@ -21,21 +19,14 @@ import com.intellij.refactoring.extractMethod.ExtractMethodProcessor
  * ExtractMethodProcessor. Automatically determines parameters, return values,
  * and updates the original code to call the new method.
  *
- * ## Design Decision: Direct Imports vs Reflection
+ * ## Design Decision: Reflection-Based Access
  *
- * Unlike other language handlers (Kotlin, Python, Go, etc.) that use reflection via
- * [com.igorlink.claudeidetools.util.PsiReflectionUtils], this handler uses direct imports
- * for Java-specific classes ([PsiJavaFile], [ExtractMethodProcessor], [CodeInsightUtil]).
- *
- * This approach is intentional:
- * 1. **Compile-time safety**: The Java plugin is declared as an optional dependency in
- *    `plugin.xml`. The ClassLoader will only load this file when the Java plugin is present.
- * 2. **Type safety**: Direct imports provide better IDE support, compile-time checks,
- *    and avoid runtime reflection errors.
- * 3. **Stability**: Java API classes are core IntelliJ Platform classes that rarely change.
+ * This handler uses reflection to access Java-specific classes (PsiJavaFile,
+ * ExtractMethodProcessor, CodeInsightUtil) to avoid ClassNotFoundException
+ * in IDEs without Java plugin (WebStorm, PhpStorm, etc.).
  *
  * The [isAvailable] method uses [PluginAvailability] to check at runtime before this
- * handler is invoked, ensuring ClassNotFoundException is never thrown in production.
+ * handler is invoked.
  *
  * ## Features
  * - Automatic parameter inference from variables used in selection
@@ -52,6 +43,10 @@ import com.intellij.refactoring.extractMethod.ExtractMethodProcessor
  * @see PluginAvailability Plugin detection utility
  */
 object JavaExtractMethodHandler {
+
+    private const val PSI_JAVA_FILE = "com.intellij.psi.PsiJavaFile"
+    private const val CODE_INSIGHT_UTIL = "com.intellij.codeInsight.CodeInsightUtil"
+    private const val EXTRACT_METHOD_PROCESSOR = "com.intellij.refactoring.extractMethod.ExtractMethodProcessor"
 
     /**
      * Internal context holding pre-computed values for extract method refactoring.
@@ -85,7 +80,8 @@ object JavaExtractMethodHandler {
         psiFile: PsiFile,
         request: ExtractMethodRequest
     ): RefactoringResponse {
-        if (psiFile !is PsiJavaFile) {
+        // Check if file is a Java file via reflection
+        if (!PsiReflectionUtils.isFileOfType(psiFile, PSI_JAVA_FILE)) {
             return RefactoringResponse(false, "File is not a valid Java file")
         }
 
@@ -129,7 +125,9 @@ object JavaExtractMethodHandler {
 
             val startOffset = document.getLineStartOffset(request.startLine - 1) + (request.startColumn - 1)
             val endOffset = document.getLineStartOffset(request.endLine - 1) + (request.endColumn - 1)
-            val elements = CodeInsightUtil.findStatementsInRange(psiFile, startOffset, endOffset)
+
+            // Find statements in range via reflection
+            val elements = findStatementsInRange(psiFile, startOffset, endOffset)
 
             if (elements.isEmpty()) {
                 return@compute Result.failure(IllegalStateException("No statements found in the specified range"))
@@ -146,23 +144,82 @@ object JavaExtractMethodHandler {
             project = project,
             commandName = "MCP Extract Method: ${request.methodName}"
         ) { callback ->
-            val processor = ExtractMethodProcessor(
-                project,
-                null, // editor
-                context.elements,
-                null, // forcedReturnType
-                "MCP Extract Method",
-                request.methodName,
-                null // helpId
-            )
-
-            if (processor.prepare()) {
-                processor.testPrepare()
-                processor.doExtract()
+            val success = runExtractMethodProcessor(project, context.elements, request.methodName)
+            if (success) {
                 callback.success("Extracted method '${request.methodName}' in project '${project.name}'")
             } else {
                 callback.failure("Cannot extract method from the selected code")
             }
+        }
+    }
+
+    /**
+     * Finds statements in the specified range using CodeInsightUtil via reflection.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun findStatementsInRange(psiFile: PsiFile, startOffset: Int, endOffset: Int): Array<PsiElement> {
+        return try {
+            val codeInsightClass = Class.forName(CODE_INSIGHT_UTIL)
+            val method = codeInsightClass.getMethod(
+                "findStatementsInRange",
+                PsiFile::class.java,
+                Int::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType
+            )
+            val result = method.invoke(null, psiFile, startOffset, endOffset)
+            result as? Array<PsiElement> ?: emptyArray()
+        } catch (e: Exception) {
+            emptyArray()
+        }
+    }
+
+    /**
+     * Creates and runs ExtractMethodProcessor via reflection.
+     */
+    private fun runExtractMethodProcessor(
+        project: Project,
+        elements: Array<PsiElement>,
+        methodName: String
+    ): Boolean {
+        return try {
+            val processorClass = Class.forName(EXTRACT_METHOD_PROCESSOR)
+
+            // Find constructor: (Project, Editor, PsiElement[], PsiType, String, String, String)
+            // We use: (Project, null, elements, null, "MCP Extract Method", methodName, null)
+            val constructor = processorClass.constructors.find { c ->
+                c.parameterCount == 7 &&
+                c.parameterTypes[0] == Project::class.java
+            } ?: return false
+
+            val processor = constructor.newInstance(
+                project,
+                null,  // editor
+                elements,
+                null,  // forcedReturnType
+                "MCP Extract Method",
+                methodName,
+                null   // helpId
+            )
+
+            // Call prepare()
+            val prepareMethod = processorClass.getMethod("prepare")
+            val prepared = prepareMethod.invoke(processor) as Boolean
+
+            if (!prepared) {
+                return false
+            }
+
+            // Call testPrepare()
+            val testPrepareMethod = processorClass.getMethod("testPrepare")
+            testPrepareMethod.invoke(processor)
+
+            // Call doExtract()
+            val doExtractMethod = processorClass.getMethod("doExtract")
+            doExtractMethod.invoke(processor)
+
+            true
+        } catch (e: Exception) {
+            false
         }
     }
 

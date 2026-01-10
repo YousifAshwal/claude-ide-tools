@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.igorlink"
-version = "0.3.16"
+version = "0.3.19"
 
 /**
  * Extracts changelog entries from CHANGELOG.md and converts to HTML for JetBrains Marketplace.
@@ -177,7 +177,28 @@ intellijPlatform {
 
     pluginVerification {
         ides {
-            ide(org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.IntellijIdeaCommunity, "2024.1")
+            // Support custom IDE verification via project properties
+            // Usage: ./gradlew verifyPlugin -Pverify.ide.type=WS -Pverify.ide.version=2024.1
+            val ideType = project.findProperty("verify.ide.type")?.toString() ?: "IC"
+            val ideVersion = project.findProperty("verify.ide.version")?.toString() ?: "2024.1"
+
+            val platformType = when (ideType) {
+                "IC" -> org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.IntellijIdeaCommunity
+                "IU" -> org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.IntellijIdeaUltimate
+                "WS" -> org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.WebStorm
+                "PY" -> org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.PyCharmProfessional
+                "PC" -> org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.PyCharmCommunity
+                "GO" -> org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.GoLand
+                "PS" -> org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.PhpStorm
+                "RM" -> org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.RubyMine
+                "CL" -> org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.CLion
+                "RD" -> org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.Rider
+                "RR" -> org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.RustRover
+                "AS" -> org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.AndroidStudio
+                else -> org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.IntellijIdeaCommunity
+            }
+
+            ide(platformType, ideVersion)
         }
     }
 }
