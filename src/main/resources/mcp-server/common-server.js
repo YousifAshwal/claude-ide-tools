@@ -13910,6 +13910,80 @@ IMPORTANT - Column positioning:
           },
           required: ["file", "line", "column"]
         }
+      },
+      {
+        name: "get_diagnostics",
+        title: "Get Diagnostics",
+        description: `Retrieve code analysis diagnostics (errors, warnings, etc.) from the IDE.
+
+Automatically detects which IDE has the file/project open and routes the request there.
+Works across ALL JetBrains IDEs.
+
+KEY PARAMETERS:
+- file: Path to analyze ONE file. Omit for project-wide scan.
+- runInspections: Set to TRUE for comprehensive analysis (default: false = cached only)
+- severity: Filter by ["ERROR", "WARNING", "WEAK_WARNING", "INFO", "HINT"]
+- limit: Max results (default: 100)
+
+IMPORTANT - Analysis modes:
+- DEFAULT (runInspections=false): Fast, but only shows diagnostics for files the IDE has already analyzed in background. May return empty for unopened files.
+- COMPREHENSIVE (runInspections=true): Runs all inspections programmatically. Slower but analyzes ALL files including unopened ones.
+
+For full project analysis, use: runInspections=true (without file parameter)
+
+Returns diagnostics sorted by severity (errors first), then by file and line.`,
+        inputSchema: {
+          type: "object",
+          properties: {
+            file: { type: "string", description: "Absolute path to analyze (optional - omit for project-wide)" },
+            project: { type: "string", description: "Project name or path hint for disambiguation (optional)" },
+            severity: {
+              type: "array",
+              items: { type: "string", enum: ["ERROR", "WARNING", "WEAK_WARNING", "INFO", "HINT"] },
+              description: "Filter by severity levels (default: all)"
+            },
+            limit: { type: "number", description: "Maximum diagnostics to return (default: 100)" },
+            runInspections: { type: "boolean", description: "Run inspections programmatically instead of using cached highlights (default: false)" }
+          },
+          required: []
+        }
+      },
+      {
+        name: "apply_fix",
+        title: "Apply Quick Fix",
+        description: `Apply a quick fix action to resolve a diagnostic issue.
+
+Use this after get_diagnostics to automatically fix problems found by the IDE.
+
+How it works:
+1. Call get_diagnostics to find issues - each diagnostic includes available fixes
+2. Choose a fix from the 'fixes' array in the diagnostic
+3. Call apply_fix with the file location and fixId
+
+Parameters:
+- file: The file containing the diagnostic
+- line, column: Position of the diagnostic
+- fixId: Index of the fix to apply (from diagnostics response)
+- diagnosticMessage: (optional) Match specific diagnostic by message
+- runInspections: (optional) Set to true if you used runInspections=true in get_diagnostics
+
+IMPORTANT - Analysis mode consistency:
+- If you found the diagnostic with get_diagnostics (default mode), apply_fix works directly
+- If you found the diagnostic with get_diagnostics(runInspections=true), you MUST also use apply_fix(runInspections=true)
+
+This is the preferred way to fix code issues - uses IDE's built-in fixes which are safe and semantically correct.`,
+        inputSchema: {
+          type: "object",
+          properties: {
+            file: { type: "string", description: "Absolute path to the file containing the diagnostic" },
+            line: { type: "number", description: "Line number (1-based) of the diagnostic" },
+            column: { type: "number", description: "Column number (1-based) of the diagnostic" },
+            fixId: { type: "number", description: "Index of the fix to apply (from the fixes array in diagnostics)" },
+            diagnosticMessage: { type: "string", description: "The diagnostic message to match (optional, for disambiguation)" },
+            runInspections: { type: "boolean", description: "Run inspections to find the diagnostic (use when get_diagnostics was called with runInspections=true)" }
+          },
+          required: ["file", "line", "column", "fixId"]
+        }
       }
     ]
   };
@@ -14012,6 +14086,123 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 ${formatted}` : result.message || "No usages found"
           }]
+        };
+      }
+      /**
+       * Get diagnostics tool handler.
+       * Retrieves code analysis diagnostics from the IDE.
+       */
+      case "get_diagnostics": {
+        const typedArgs = args ?? {};
+        const { file, project, severity, limit, runInspections } = typedArgs;
+        let ide = null;
+        if (typeof file === "string" && file) {
+          ide = await findIdeForFile(file);
+          if (!ide) {
+            return await handleMissingIde(file);
+          }
+        } else {
+          const runningIdes = await scanRunningIdes();
+          if (runningIdes.length === 0) {
+            return {
+              content: [{
+                type: "text",
+                text: "No JetBrains IDEs are running.\n\nStart an IDE with a project open to get diagnostics."
+              }],
+              isError: true
+            };
+          }
+          ide = runningIdes[0];
+        }
+        const result = await callIde(ide.port, "/diagnostics", {
+          file: typeof file === "string" ? file : void 0,
+          project: typeof project === "string" ? project : void 0,
+          severity: Array.isArray(severity) ? severity : void 0,
+          limit: typeof limit === "number" ? limit : void 0,
+          runInspections: typeof runInspections === "boolean" ? runInspections : void 0
+        });
+        if (!result.success) {
+          return {
+            content: [{ type: "text", text: `Failed: ${result.message}` }],
+            isError: true
+          };
+        }
+        const diagnostics = result.diagnostics || [];
+        if (diagnostics.length === 0) {
+          return {
+            content: [{ type: "text", text: result.message || "No diagnostics found" }]
+          };
+        }
+        const formatted = diagnostics.map((d) => {
+          const location = `${d.file}:${d.line}:${d.column}`;
+          const severityTag = `[${d.severity}]`;
+          const source = d.source ? ` (${d.source})` : "";
+          let result2 = `${severityTag} ${location}${source}
+  ${d.message}`;
+          if (d.fixes && d.fixes.length > 0) {
+            const fixList = d.fixes.map((f) => `    [${f.id}] ${f.name}`).join("\n");
+            result2 += `
+  Fixes:
+${fixList}`;
+          }
+          return result2;
+        }).join("\n\n");
+        const truncationNote = result.truncated ? `
+
+(Showing ${diagnostics.length} of ${result.totalCount} total)` : "";
+        return {
+          content: [{
+            type: "text",
+            text: `${result.message}
+
+${formatted}${truncationNote}`
+          }]
+        };
+      }
+      /**
+       * Apply fix tool handler.
+       * Applies a quick fix action to resolve a diagnostic.
+       */
+      case "apply_fix": {
+        const typedArgs = args ?? {};
+        const validation = validateFileLocationParams(typedArgs);
+        if (!validation.valid) {
+          return validation.error;
+        }
+        const { fixId, diagnosticMessage, runInspections } = typedArgs;
+        if (typeof fixId !== "number" || fixId < 0) {
+          return {
+            content: [{ type: "text", text: "Error: fixId must be a non-negative number" }],
+            isError: true
+          };
+        }
+        const ide = await findIdeForFile(validation.file);
+        if (!ide) {
+          return await handleMissingIde(validation.file);
+        }
+        const result = await callIde(ide.port, "/applyFix", {
+          file: validation.file,
+          line: validation.line,
+          column: validation.column,
+          fixId,
+          diagnosticMessage: typeof diagnosticMessage === "string" ? diagnosticMessage : void 0,
+          runInspections: typeof runInspections === "boolean" ? runInspections : void 0
+        });
+        if (!result.success) {
+          return {
+            content: [{ type: "text", text: `Failed to apply fix: ${result.message}` }],
+            isError: true
+          };
+        }
+        let responseText = result.message;
+        if (result.affectedFiles && result.affectedFiles.length > 0) {
+          responseText += `
+
+Modified files:
+${result.affectedFiles.map((f) => `  - ${f}`).join("\n")}`;
+        }
+        return {
+          content: [{ type: "text", text: responseText }]
         };
       }
       default:

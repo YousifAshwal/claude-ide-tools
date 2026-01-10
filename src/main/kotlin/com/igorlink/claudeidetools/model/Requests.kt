@@ -166,3 +166,90 @@ data class ExtractMethodRequest(
     val methodName: String,
     val project: String? = null
 )
+
+/**
+ * Request DTO for the `/diagnostics` endpoint.
+ *
+ * Retrieves code analysis diagnostics (errors, warnings, etc.) from the IDE.
+ * All parameters are optional, allowing flexible querying.
+ *
+ * ## Query Modes
+ * - **Single file**: Provide `file` to get diagnostics for one file
+ * - **Project-wide**: Omit `file` to get all diagnostics in the project
+ *
+ * ## Analysis Modes
+ * - **Cached (default)**: Uses IDE's cached highlights from background analysis.
+ *   Fast but only returns diagnostics for files already analyzed by the daemon.
+ * - **Inspections**: Set `runInspections=true` to run inspections programmatically.
+ *   Slower but provides comprehensive analysis of all files.
+ *
+ * ## Example JSON
+ * ```json
+ * {
+ *   "file": "/path/to/MyClass.java",
+ *   "severity": ["ERROR", "WARNING"],
+ *   "limit": 50,
+ *   "runInspections": true
+ * }
+ * ```
+ *
+ * @property file Optional absolute path to analyze a specific file
+ * @property project Optional project name or base path for disambiguation
+ * @property severity Optional list of severity levels to include (default: all).
+ *                    Valid values: ERROR, WARNING, WEAK_WARNING, INFO, HINT
+ * @property limit Maximum number of diagnostics to return (default: 100, must be positive)
+ * @property runInspections When true, runs inspections programmatically instead of using
+ *                          cached highlights. Slower but more comprehensive. (default: false)
+ */
+@Serializable
+data class DiagnosticsRequest(
+    val file: String? = null,
+    val project: String? = null,
+    val severity: List<String>? = null,
+    val limit: Int = 100,
+    val runInspections: Boolean = false
+)
+
+/**
+ * Request DTO for the `/applyFix` endpoint.
+ *
+ * Applies a quick fix action to resolve a diagnostic issue.
+ * The fix is identified by file location and fix index from a previous diagnostics response.
+ *
+ * ## Analysis Modes
+ * - **Cached (default)**: Uses IDE's cached highlights. Only works for files currently open
+ *   in the editor with active analysis.
+ * - **Inspections**: Set `runInspections=true` to run inspections programmatically.
+ *   Works for any file, even if not open in the editor.
+ *
+ * ## Example JSON
+ * ```json
+ * {
+ *   "file": "/path/to/MyClass.java",
+ *   "line": 15,
+ *   "column": 10,
+ *   "fixId": 0,
+ *   "diagnosticMessage": "Cannot resolve symbol 'foo'",
+ *   "runInspections": true
+ * }
+ * ```
+ *
+ * @property file Absolute path to the file containing the diagnostic
+ * @property line Line number (1-based) of the diagnostic
+ * @property column Column number (1-based) of the diagnostic
+ * @property fixId Index of the fix to apply (from the `fixes` array in diagnostics)
+ * @property diagnosticMessage The diagnostic message to match (for verification)
+ * @property project Optional project name or base path for disambiguation
+ * @property runInspections When true, runs inspections to find the diagnostic instead of
+ *                          using cached highlights. Use this when the file is not open in editor.
+ */
+@Serializable
+data class ApplyFixRequest(
+    val file: String,
+    val line: Int,
+    val column: Int,
+    val fixId: Int,
+    val diagnosticMessage: String? = null,
+    val project: String? = null,
+    val runInspections: Boolean = false
+)

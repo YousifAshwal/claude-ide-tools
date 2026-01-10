@@ -683,6 +683,416 @@ class ModelSerializationTest {
         }
     }
 
+    // ==================== Diagnostics DTOs ====================
+
+    @Nested
+    inner class DiagnosticsRequestTest {
+
+        @Test
+        fun `serialize and deserialize with all fields`() {
+            val request = DiagnosticsRequest(
+                file = "/path/to/File.kt",
+                project = "MyProject",
+                severity = listOf("ERROR", "WARNING"),
+                limit = 50,
+                runInspections = true
+            )
+
+            val json = jsonLenient.encodeToString(request)
+            val decoded = jsonLenient.decodeFromString<DiagnosticsRequest>(json)
+
+            assertEquals(request, decoded)
+            assertTrue(json.contains("\"file\":\"/path/to/File.kt\""))
+            assertTrue(json.contains("\"severity\""))
+            assertTrue(json.contains("\"runInspections\":true"))
+        }
+
+        @Test
+        fun `serialize and deserialize with null file for project-wide`() {
+            val request = DiagnosticsRequest(
+                file = null,
+                project = "MyProject",
+                severity = listOf("ERROR"),
+                limit = 100
+            )
+
+            val json = jsonLenient.encodeToString(request)
+            val decoded = jsonLenient.decodeFromString<DiagnosticsRequest>(json)
+
+            assertEquals(request, decoded)
+            assertNull(decoded.file)
+        }
+
+        @Test
+        fun `serialize and deserialize with empty severity list`() {
+            val request = DiagnosticsRequest(
+                file = "/file.kt",
+                severity = emptyList(),
+                limit = 100
+            )
+
+            val json = jsonLenient.encodeToString(request)
+            val decoded = jsonLenient.decodeFromString<DiagnosticsRequest>(json)
+
+            assertTrue(decoded.severity?.isEmpty() ?: true)
+        }
+
+        @Test
+        fun `serialize and deserialize with multiple severities`() {
+            val request = DiagnosticsRequest(
+                file = "/file.kt",
+                severity = listOf("ERROR", "WARNING", "WEAK_WARNING", "INFO", "HINT")
+            )
+
+            val json = jsonLenient.encodeToString(request)
+            val decoded = jsonLenient.decodeFromString<DiagnosticsRequest>(json)
+
+            assertEquals(5, decoded.severity?.size)
+            assertTrue(decoded.severity?.contains("ERROR") == true)
+            assertTrue(decoded.severity?.contains("HINT") == true)
+        }
+
+        @Test
+        fun `deserialize without optional fields uses defaults`() {
+            val json = """{}"""
+
+            val decoded = jsonLenient.decodeFromString<DiagnosticsRequest>(json)
+
+            assertNull(decoded.file)
+            assertNull(decoded.project)
+            assertNull(decoded.severity)
+            assertEquals(100, decoded.limit)
+            assertFalse(decoded.runInspections)
+        }
+
+        @Test
+        fun `serialize and deserialize with runInspections enabled`() {
+            val request = DiagnosticsRequest(
+                file = "/path/to/File.kt",
+                runInspections = true
+            )
+
+            val json = jsonLenient.encodeToString(request)
+            val decoded = jsonLenient.decodeFromString<DiagnosticsRequest>(json)
+
+            assertEquals(request, decoded)
+            assertTrue(decoded.runInspections)
+        }
+
+        @Test
+        fun `serialize and deserialize with runInspections disabled (default)`() {
+            val request = DiagnosticsRequest(
+                file = "/path/to/File.kt"
+            )
+
+            val json = jsonLenient.encodeToString(request)
+            val decoded = jsonLenient.decodeFromString<DiagnosticsRequest>(json)
+
+            assertEquals(request, decoded)
+            assertFalse(decoded.runInspections)
+        }
+
+        @Test
+        fun `deserialize with unknown keys when lenient`() {
+            val json = """{"file":"/path","unknownField":"value","anotherUnknown":123}"""
+
+            val decoded = jsonLenient.decodeFromString<DiagnosticsRequest>(json)
+
+            assertEquals("/path", decoded.file)
+        }
+
+        @Test
+        fun `handles special characters in file path`() {
+            val request = DiagnosticsRequest(
+                file = "/path/with spaces/and\"quotes/File.kt"
+            )
+
+            val json = jsonLenient.encodeToString(request)
+            val decoded = jsonLenient.decodeFromString<DiagnosticsRequest>(json)
+
+            assertEquals(request, decoded)
+        }
+
+        @Test
+        fun `handles negative limit value`() {
+            val request = DiagnosticsRequest(limit = -1)
+
+            val json = jsonLenient.encodeToString(request)
+            val decoded = jsonLenient.decodeFromString<DiagnosticsRequest>(json)
+
+            assertEquals(-1, decoded.limit)
+        }
+
+        @Test
+        fun `handles zero limit value`() {
+            val request = DiagnosticsRequest(limit = 0)
+
+            val json = jsonLenient.encodeToString(request)
+            val decoded = jsonLenient.decodeFromString<DiagnosticsRequest>(json)
+
+            assertEquals(0, decoded.limit)
+        }
+    }
+
+    @Nested
+    inner class DiagnosticsResponseTest {
+
+        @Test
+        fun `serialize and deserialize successful response with diagnostics`() {
+            val response = DiagnosticsResponse(
+                success = true,
+                message = "Found 2 diagnostics",
+                diagnostics = listOf(
+                    Diagnostic("/a.kt", 10, 5, 10, 15, "ERROR", "Cannot resolve symbol", "Java"),
+                    Diagnostic("/b.kt", 20, 10, 20, 25, "WARNING", "Unused variable", "Kotlin")
+                ),
+                totalCount = 2,
+                truncated = false
+            )
+
+            val json = jsonLenient.encodeToString(response)
+            val decoded = jsonLenient.decodeFromString<DiagnosticsResponse>(json)
+
+            assertEquals(response, decoded)
+            assertEquals(2, decoded.diagnostics.size)
+        }
+
+        @Test
+        fun `serialize and deserialize failed response`() {
+            val response = DiagnosticsResponse(
+                success = false,
+                message = "File not found"
+            )
+
+            val json = jsonLenient.encodeToString(response)
+            val decoded = jsonLenient.decodeFromString<DiagnosticsResponse>(json)
+
+            assertFalse(decoded.success)
+            assertEquals("File not found", decoded.message)
+            assertTrue(decoded.diagnostics.isEmpty())
+        }
+
+        @Test
+        fun `deserialize without diagnostics field uses default empty list`() {
+            val json = """{"success":true,"message":"No diagnostics"}"""
+
+            val decoded = jsonLenient.decodeFromString<DiagnosticsResponse>(json)
+
+            assertTrue(decoded.success)
+            assertTrue(decoded.diagnostics.isEmpty())
+            assertEquals(0, decoded.totalCount)
+            assertFalse(decoded.truncated)
+        }
+
+        @Test
+        fun `handles many diagnostics`() {
+            val diagnostics = (1..500).map {
+                Diagnostic("/file$it.kt", it, it, it, it + 5, "ERROR", "Error $it", "Java")
+            }
+            val response = DiagnosticsResponse(
+                success = true,
+                message = "Found 500 diagnostics",
+                diagnostics = diagnostics,
+                totalCount = 500,
+                truncated = false
+            )
+
+            val json = jsonLenient.encodeToString(response)
+            val decoded = jsonLenient.decodeFromString<DiagnosticsResponse>(json)
+
+            assertEquals(500, decoded.diagnostics.size)
+        }
+
+        @Test
+        fun `totalCount and truncated fields serialize correctly`() {
+            val response = DiagnosticsResponse(
+                success = true,
+                message = "Found 1000 diagnostics (showing first 100)",
+                diagnostics = (1..100).map {
+                    Diagnostic("/file.kt", it, 1, it, 10, "WARNING", "Warning $it", null)
+                },
+                totalCount = 1000,
+                truncated = true
+            )
+
+            val json = jsonLenient.encodeToString(response)
+            val decoded = jsonLenient.decodeFromString<DiagnosticsResponse>(json)
+
+            assertEquals(1000, decoded.totalCount)
+            assertTrue(decoded.truncated)
+            assertEquals(100, decoded.diagnostics.size)
+        }
+    }
+
+    @Nested
+    inner class DiagnosticTest {
+
+        @Test
+        fun `serialize and deserialize with all fields`() {
+            val diagnostic = Diagnostic(
+                file = "/src/Main.java",
+                line = 42,
+                column = 15,
+                endLine = 42,
+                endColumn = 25,
+                severity = "ERROR",
+                message = "Cannot resolve symbol 'foo'",
+                source = "Java"
+            )
+
+            val json = jsonLenient.encodeToString(diagnostic)
+            val decoded = jsonLenient.decodeFromString<Diagnostic>(json)
+
+            assertEquals(diagnostic, decoded)
+        }
+
+        @Test
+        fun `serialize and deserialize with null source`() {
+            val diagnostic = Diagnostic(
+                file = "/file.kt",
+                line = 1,
+                column = 1,
+                endLine = 1,
+                endColumn = 10,
+                severity = "WARNING",
+                message = "Unused variable",
+                source = null
+            )
+
+            val json = jsonLenient.encodeToString(diagnostic)
+            val decoded = jsonLenient.decodeFromString<Diagnostic>(json)
+
+            assertNull(decoded.source)
+        }
+
+        @Test
+        fun `handles special characters in message`() {
+            val diagnostic = Diagnostic(
+                file = "/file.kt",
+                line = 1,
+                column = 1,
+                endLine = 1,
+                endColumn = 5,
+                severity = "ERROR",
+                message = "Error: \"unexpected token\" at line 5\nDetails: \t<none>",
+                source = null
+            )
+
+            val json = jsonLenient.encodeToString(diagnostic)
+            val decoded = jsonLenient.decodeFromString<Diagnostic>(json)
+
+            assertTrue(decoded.message.contains("\"unexpected token\""))
+            assertTrue(decoded.message.contains("\n"))
+            assertTrue(decoded.message.contains("\t"))
+        }
+
+        @Test
+        fun `handles multiline message`() {
+            val diagnostic = Diagnostic(
+                file = "/file.kt",
+                line = 1,
+                column = 1,
+                endLine = 1,
+                endColumn = 5,
+                severity = "ERROR",
+                message = "Line 1\nLine 2\nLine 3",
+                source = null
+            )
+
+            val json = jsonLenient.encodeToString(diagnostic)
+            val decoded = jsonLenient.decodeFromString<Diagnostic>(json)
+
+            assertEquals("Line 1\nLine 2\nLine 3", decoded.message)
+        }
+
+        @Test
+        fun `handles code symbols in message`() {
+            val diagnostic = Diagnostic(
+                file = "/file.kt",
+                line = 1,
+                column = 1,
+                endLine = 1,
+                endColumn = 5,
+                severity = "WARNING",
+                message = "Type mismatch: expected Map<String, List<Int>> but got HashMap<String, ArrayList<Int>>",
+                source = null
+            )
+
+            val json = jsonLenient.encodeToString(diagnostic)
+            val decoded = jsonLenient.decodeFromString<Diagnostic>(json)
+
+            assertTrue(decoded.message.contains("Map<String, List<Int>>"))
+        }
+
+        @Test
+        fun `handles large line and column numbers`() {
+            val diagnostic = Diagnostic(
+                file = "/file.kt",
+                line = Int.MAX_VALUE,
+                column = Int.MAX_VALUE,
+                endLine = Int.MAX_VALUE,
+                endColumn = Int.MAX_VALUE,
+                severity = "ERROR",
+                message = "Error",
+                source = null
+            )
+
+            val json = jsonLenient.encodeToString(diagnostic)
+            val decoded = jsonLenient.decodeFromString<Diagnostic>(json)
+
+            assertEquals(Int.MAX_VALUE, decoded.line)
+            assertEquals(Int.MAX_VALUE, decoded.column)
+        }
+    }
+
+    @Nested
+    inner class DiagnosticSeverityTest {
+
+        @Test
+        fun `all severity values serialize correctly`() {
+            for (severity in DiagnosticSeverity.entries) {
+                val diagnostic = Diagnostic(
+                    file = "/file.kt",
+                    line = 1,
+                    column = 1,
+                    endLine = 1,
+                    endColumn = 5,
+                    severity = severity.name,
+                    message = "Test",
+                    source = null
+                )
+
+                val json = jsonLenient.encodeToString(diagnostic)
+                assertTrue(json.contains("\"severity\":\"${severity.name}\""))
+            }
+        }
+
+        @Test
+        fun `fromString parses all valid severities`() {
+            assertEquals(DiagnosticSeverity.ERROR, DiagnosticSeverity.fromString("ERROR"))
+            assertEquals(DiagnosticSeverity.WARNING, DiagnosticSeverity.fromString("WARNING"))
+            assertEquals(DiagnosticSeverity.WEAK_WARNING, DiagnosticSeverity.fromString("WEAK_WARNING"))
+            assertEquals(DiagnosticSeverity.INFO, DiagnosticSeverity.fromString("INFO"))
+            assertEquals(DiagnosticSeverity.HINT, DiagnosticSeverity.fromString("HINT"))
+        }
+
+        @Test
+        fun `fromString handles case variations`() {
+            assertEquals(DiagnosticSeverity.ERROR, DiagnosticSeverity.fromString("error"))
+            assertEquals(DiagnosticSeverity.WARNING, DiagnosticSeverity.fromString("Warning"))
+            assertEquals(DiagnosticSeverity.WEAK_WARNING, DiagnosticSeverity.fromString("weak_warning"))
+            assertEquals(DiagnosticSeverity.INFO, DiagnosticSeverity.fromString("iNfO"))
+        }
+
+        @Test
+        fun `fromString returns null for invalid strings`() {
+            assertNull(DiagnosticSeverity.fromString("INVALID"))
+            assertNull(DiagnosticSeverity.fromString(""))
+            assertNull(DiagnosticSeverity.fromString("ERR"))
+            assertNull(DiagnosticSeverity.fromString("WARNINGS"))
+        }
+    }
+
     // ==================== Cross-cutting Concerns ====================
 
     @Nested
@@ -826,6 +1236,303 @@ class ModelSerializationTest {
             assertTrue(decoded.message.contains("\n"))
             assertTrue(decoded.message.contains("\t"))
             assertTrue(decoded.message.contains("\r"))
+        }
+    }
+
+    // ==================== Apply Fix DTOs ====================
+
+    @Nested
+    inner class ApplyFixRequestTest {
+
+        @Test
+        fun `serialize and deserialize with all fields`() {
+            val request = ApplyFixRequest(
+                file = "/path/to/File.kt",
+                line = 10,
+                column = 5,
+                fixId = 0,
+                diagnosticMessage = "Cannot resolve symbol 'foo'",
+                project = "MyProject"
+            )
+
+            val json = jsonLenient.encodeToString(request)
+            val decoded = jsonLenient.decodeFromString<ApplyFixRequest>(json)
+
+            assertEquals(request, decoded)
+            assertTrue(json.contains("\"file\":\"/path/to/File.kt\""))
+            assertTrue(json.contains("\"fixId\":0"))
+        }
+
+        @Test
+        fun `serialize and deserialize with null diagnosticMessage`() {
+            val request = ApplyFixRequest(
+                file = "/path/to/File.kt",
+                line = 1,
+                column = 1,
+                fixId = 2,
+                diagnosticMessage = null,
+                project = null
+            )
+
+            val json = jsonLenient.encodeToString(request)
+            val decoded = jsonLenient.decodeFromString<ApplyFixRequest>(json)
+
+            assertEquals(request, decoded)
+            assertNull(decoded.diagnosticMessage)
+            assertNull(decoded.project)
+        }
+
+        @Test
+        fun `deserialize without optional fields`() {
+            val json = """{"file":"/path/to/File.kt","line":10,"column":5,"fixId":0}"""
+
+            val decoded = jsonLenient.decodeFromString<ApplyFixRequest>(json)
+
+            assertEquals("/path/to/File.kt", decoded.file)
+            assertEquals(10, decoded.line)
+            assertEquals(5, decoded.column)
+            assertEquals(0, decoded.fixId)
+            assertNull(decoded.diagnosticMessage)
+            assertNull(decoded.project)
+        }
+
+        @Test
+        fun `handles special characters in diagnosticMessage`() {
+            val request = ApplyFixRequest(
+                file = "/file.kt",
+                line = 1,
+                column = 1,
+                fixId = 0,
+                diagnosticMessage = "Error: \"unexpected token\" at line 5\nDetails: \t<none>"
+            )
+
+            val json = jsonLenient.encodeToString(request)
+            val decoded = jsonLenient.decodeFromString<ApplyFixRequest>(json)
+
+            assertTrue(decoded.diagnosticMessage?.contains("\"unexpected token\"") == true)
+            assertTrue(decoded.diagnosticMessage?.contains("\n") == true)
+        }
+
+        @Test
+        fun `deserialize with unknown keys when lenient`() {
+            val json = """{"file":"/path","line":1,"column":1,"fixId":0,"unknownField":"value"}"""
+
+            val decoded = jsonLenient.decodeFromString<ApplyFixRequest>(json)
+
+            assertEquals("/path", decoded.file)
+            assertEquals(0, decoded.fixId)
+        }
+    }
+
+    @Nested
+    inner class ApplyFixResponseTest {
+
+        @Test
+        fun `serialize and deserialize successful response`() {
+            val response = ApplyFixResponse(
+                success = true,
+                message = "Applied fix 'Add explicit this'",
+                fixName = "Add explicit 'this'",
+                affectedFiles = listOf("/path/to/MyClass.java")
+            )
+
+            val json = jsonLenient.encodeToString(response)
+            val decoded = jsonLenient.decodeFromString<ApplyFixResponse>(json)
+
+            assertEquals(response, decoded)
+            assertTrue(decoded.success)
+            assertEquals("Add explicit 'this'", decoded.fixName)
+        }
+
+        @Test
+        fun `serialize and deserialize failed response`() {
+            val response = ApplyFixResponse(
+                success = false,
+                message = "No diagnostic found at the specified location"
+            )
+
+            val json = jsonLenient.encodeToString(response)
+            val decoded = jsonLenient.decodeFromString<ApplyFixResponse>(json)
+
+            assertFalse(decoded.success)
+            assertNull(decoded.fixName)
+            assertTrue(decoded.affectedFiles.isEmpty())
+        }
+
+        @Test
+        fun `deserialize without optional fields uses defaults`() {
+            val json = """{"success":true,"message":"OK"}"""
+
+            val decoded = jsonLenient.decodeFromString<ApplyFixResponse>(json)
+
+            assertTrue(decoded.success)
+            assertEquals("OK", decoded.message)
+            assertNull(decoded.fixName)
+            assertTrue(decoded.affectedFiles.isEmpty())
+        }
+
+        @Test
+        fun `handles multiple affected files`() {
+            val response = ApplyFixResponse(
+                success = true,
+                message = "Applied fix",
+                fixName = "Import class",
+                affectedFiles = listOf("/src/A.kt", "/src/B.kt", "/src/C.kt")
+            )
+
+            val json = jsonLenient.encodeToString(response)
+            val decoded = jsonLenient.decodeFromString<ApplyFixResponse>(json)
+
+            assertEquals(3, decoded.affectedFiles.size)
+        }
+    }
+
+    @Nested
+    inner class QuickFixTest {
+
+        @Test
+        fun `serialize and deserialize with all fields`() {
+            val quickFix = QuickFix(
+                id = 0,
+                name = "Add explicit 'this'",
+                familyName = "Add explicit 'this'",
+                description = "Adds explicit 'this.' qualifier"
+            )
+
+            val json = jsonLenient.encodeToString(quickFix)
+            val decoded = jsonLenient.decodeFromString<QuickFix>(json)
+
+            assertEquals(quickFix, decoded)
+            assertEquals(0, decoded.id)
+            assertEquals("Add explicit 'this'", decoded.name)
+        }
+
+        @Test
+        fun `serialize and deserialize with null optional fields`() {
+            val quickFix = QuickFix(
+                id = 1,
+                name = "Import class",
+                familyName = null,
+                description = null
+            )
+
+            val json = jsonLenient.encodeToString(quickFix)
+            val decoded = jsonLenient.decodeFromString<QuickFix>(json)
+
+            assertEquals(1, decoded.id)
+            assertEquals("Import class", decoded.name)
+            assertNull(decoded.familyName)
+            assertNull(decoded.description)
+        }
+
+        @Test
+        fun `deserialize without optional fields`() {
+            val json = """{"id":2,"name":"Create function"}"""
+
+            val decoded = jsonLenient.decodeFromString<QuickFix>(json)
+
+            assertEquals(2, decoded.id)
+            assertEquals("Create function", decoded.name)
+            assertNull(decoded.familyName)
+            assertNull(decoded.description)
+        }
+
+        @Test
+        fun `handles special characters in name and description`() {
+            val quickFix = QuickFix(
+                id = 0,
+                name = "Add type <String, List<Int>>",
+                familyName = "Add type",
+                description = "Adds explicit type annotation:\n  val x: Map<String, List<Int>>"
+            )
+
+            val json = jsonLenient.encodeToString(quickFix)
+            val decoded = jsonLenient.decodeFromString<QuickFix>(json)
+
+            assertTrue(decoded.name.contains("<String, List<Int>>"))
+            assertTrue(decoded.description?.contains("\n") == true)
+        }
+    }
+
+    @Nested
+    inner class DiagnosticWithFixesTest {
+
+        @Test
+        fun `serialize and deserialize diagnostic with fixes`() {
+            val diagnostic = Diagnostic(
+                file = "/src/Main.java",
+                line = 42,
+                column = 15,
+                endLine = 42,
+                endColumn = 25,
+                severity = "ERROR",
+                message = "Cannot resolve symbol 'foo'",
+                source = "Java",
+                fixes = listOf(
+                    QuickFix(0, "Import class", "Import", null),
+                    QuickFix(1, "Create local variable", "Create", null)
+                )
+            )
+
+            val json = jsonLenient.encodeToString(diagnostic)
+            val decoded = jsonLenient.decodeFromString<Diagnostic>(json)
+
+            assertEquals(diagnostic, decoded)
+            assertEquals(2, decoded.fixes.size)
+            assertEquals("Import class", decoded.fixes[0].name)
+            assertEquals("Create local variable", decoded.fixes[1].name)
+        }
+
+        @Test
+        fun `serialize and deserialize diagnostic without fixes`() {
+            val diagnostic = Diagnostic(
+                file = "/src/Main.java",
+                line = 1,
+                column = 1,
+                endLine = 1,
+                endColumn = 10,
+                severity = "INFO",
+                message = "Info message",
+                source = null,
+                fixes = emptyList()
+            )
+
+            val json = jsonLenient.encodeToString(diagnostic)
+            val decoded = jsonLenient.decodeFromString<Diagnostic>(json)
+
+            assertTrue(decoded.fixes.isEmpty())
+        }
+
+        @Test
+        fun `deserialize diagnostic without fixes field uses default empty list`() {
+            val json = """{"file":"/f.kt","line":1,"column":1,"endLine":1,"endColumn":5,"severity":"ERROR","message":"Error"}"""
+
+            val decoded = jsonLenient.decodeFromString<Diagnostic>(json)
+
+            assertTrue(decoded.fixes.isEmpty())
+        }
+
+        @Test
+        fun `handles many fixes`() {
+            val fixes = (0..9).map { QuickFix(it, "Fix $it", "Family $it", null) }
+            val diagnostic = Diagnostic(
+                file = "/file.kt",
+                line = 1,
+                column = 1,
+                endLine = 1,
+                endColumn = 5,
+                severity = "ERROR",
+                message = "Error",
+                source = null,
+                fixes = fixes
+            )
+
+            val json = jsonLenient.encodeToString(diagnostic)
+            val decoded = jsonLenient.decodeFromString<Diagnostic>(json)
+
+            assertEquals(10, decoded.fixes.size)
+            assertEquals("Fix 0", decoded.fixes.first().name)
+            assertEquals("Fix 9", decoded.fixes.last().name)
         }
     }
 
