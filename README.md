@@ -390,6 +390,40 @@ The tag push triggers the release workflow which:
 4. Publishes to **JetBrains Marketplace** (with changelog)
 5. Creates **GitHub Release** (with changelog and plugin zip attached)
 
+### Plugin Verification
+
+A separate workflow verifies plugin compatibility against all supported IDEs:
+
+| IDE | Code |
+|-----|------|
+| IntelliJ IDEA Community | IC |
+| IntelliJ IDEA Ultimate | IU |
+| WebStorm | WS |
+| PhpStorm | PS |
+| PyCharm Professional | PY |
+| PyCharm Community | PC |
+| GoLand | GO |
+| RubyMine | RM |
+| CLion | CL |
+| Rider | RD |
+| RustRover | RR |
+| Android Studio | AS |
+
+**When it runs:**
+- Automatically on PRs to `master`
+- Manually via Actions → "Verify Plugin Compatibility" → Run workflow
+
+**Features:**
+- Each IDE runs in a separate job (avoids disk space issues)
+- All IDEs are checked even if some fail
+- Summary table with results at the end
+
+**Local verification:**
+```bash
+# Verify against specific IDE
+./gradlew verifyPlugin -Pverify.ide.type=WS -Pverify.ide.version=2024.1
+```
+
 ### Setup Requirements
 
 To enable automatic publishing, add the `JETBRAINS_MARKETPLACE_TOKEN` secret to your GitHub repository:
