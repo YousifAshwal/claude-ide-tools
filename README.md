@@ -322,12 +322,12 @@ This ensures the plugin will overwrite the old server files on IDE restart.
 
 The project uses GitHub Actions for continuous integration and deployment.
 
-### Automated Builds
+### Workflows
 
-Every push to any branch and every pull request triggers:
-- MCP server build (`npm ci` + `npm run build`)
-- Plugin build (`./gradlew buildPlugin`)
-- Test execution (`./gradlew test`)
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| **Verify Plugin Compatibility** | Pull requests | Tests plugin against all supported IDEs |
+| **Auto Release** | PR merge to `master` with `release` label | Creates tag, builds, publishes to Marketplace |
 
 ### Release Process
 
@@ -343,48 +343,54 @@ git commit -m "Description of changes"
 git push origin dev
 ```
 
-#### 2. Update CHANGELOG.md
+#### 2. Prepare release
 
-Before releasing, add your changes to `CHANGELOG.md`:
+Before creating a release PR:
 
-```markdown
-## [0.3.17] - 2025-01-11
+1. **Update version** in `build.gradle.kts`:
+   ```kotlin
+   version = "0.3.20"
+   ```
 
-### Added
-- New feature description
+2. **Update CHANGELOG.md** with the new version:
+   ```markdown
+   ## [0.3.20] - 2025-01-11
 
-### Fixed
-- Bug fix description
+   ### Added
+   - New feature description
 
-### Changed
-- Change description
-```
+   ### Fixed
+   - Bug fix description
+   ```
 
-The changelog follows [Keep a Changelog](https://keepachangelog.com/) format.
+> **Note:** Only add versions to CHANGELOG that will be released. Consolidate all dev changes into a single entry.
 
-> **Note:** Only add versions to CHANGELOG that will be released to the marketplace. Do not add entries for intermediate dev commits — consolidate all changes into a single changelog entry when merging to `master`.
-
-#### 3. Update version in build.gradle.kts
-
-```kotlin
-version = "0.3.17"
-```
-
-#### 4. Create Pull Request with `release` label
+#### 3. Create Pull Request with `release` label
 
 On GitHub, create a PR: `dev` → `master` and add the **`release`** label.
 
-#### 5. Merge and Automatic Release
+#### 4. Merge and Automatic Release
 
-When the PR is merged, the following happens automatically:
-1. The `auto-tag` workflow extracts the version from `build.gradle.kts`
-2. Creates and pushes a git tag `v{version}`
-3. The tag triggers the release workflow which:
-   - Verifies the tag is on `master` branch
-   - Builds and verifies the plugin
-   - Extracts changelog for the version from `CHANGELOG.md`
-   - Publishes to **JetBrains Marketplace** (with changelog)
-   - Creates **GitHub Release** (with changelog and plugin zip attached)
+When the PR is merged, the `auto-release` workflow automatically:
+1. Extracts version from `build.gradle.kts`
+2. Creates git tag `v{version}`
+3. Builds the plugin
+4. Publishes to **JetBrains Marketplace**
+5. Creates **GitHub Release** with changelog and plugin zip
+
+#### 5. Increment version for next development
+
+After release, immediately increment the version in `dev` branch for the next release cycle:
+
+```bash
+git checkout dev
+git pull origin master
+# Update version in build.gradle.kts to next version (e.g., 0.3.21)
+git commit -am "Bump version for next development cycle"
+git push origin dev
+```
+
+This prevents accidentally releasing the same version twice.
 
 ### Plugin Verification
 
