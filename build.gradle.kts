@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.igorlink"
-version = "0.3.20"
+version = "0.3.21"
 
 /**
  * Extracts changelog entries from CHANGELOG.md and converts to HTML for JetBrains Marketplace.
@@ -212,15 +212,30 @@ val commonServerTarget = file("src/main/resources/mcp-server/common-server.js")
 val ideServerTarget = file("src/main/resources/mcp-server/ide-server.js")
 
 tasks {
+    // Use npm.cmd on Windows, npm on Unix
+    val npmCommand = if (System.getProperty("os.name").lowercase().contains("windows")) "npm.cmd" else "npm"
+
+    // Install MCP server npm dependencies
+    val installMcpDependencies by registering(Exec::class) {
+        group = "build"
+        description = "Install MCP server npm dependencies"
+
+        workingDir = mcpServerDir
+        commandLine(npmCommand, "install")
+
+        // Only run if node_modules doesn't exist or package.json changed
+        inputs.file(mcpServerDir.resolve("package.json"))
+        inputs.file(mcpServerDir.resolve("package-lock.json"))
+        outputs.dir(mcpServerDir.resolve("node_modules"))
+    }
+
     // Build MCP servers (npm build) and copy to resources
     val buildMcpServer by registering(Exec::class) {
         group = "build"
         description = "Build MCP servers and copy to plugin resources"
+        dependsOn(installMcpDependencies)
 
         workingDir = mcpServerDir
-
-        // Use npm.cmd on Windows, npm on Unix
-        val npmCommand = if (System.getProperty("os.name").lowercase().contains("windows")) "npm.cmd" else "npm"
         commandLine(npmCommand, "run", "build")
 
         doLast {
