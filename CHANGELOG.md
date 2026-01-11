@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.21] - 2025-01-11
+
+### Fixed
+- **macOS MCP Registration**: Fixed "command not found: claude" error when IDE is launched from Dock
+  - IDE launched from Dock doesn't inherit shell environment (PATH from `~/.zshrc`)
+  - Now uses interactive login shell (`zsh -li`) to properly load user's PATH configuration
+  - Works correctly regardless of how IDE was started (Dock, Spotlight, Terminal)
+
 ## [0.3.20] - 2025-01-11
 
 ### Added
@@ -107,7 +115,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Extract method refactoring
 - Auto-registration in Claude Code config
 
-[Unreleased]: https://github.com/AiryLark/claude-ide-tools/compare/v0.3.20...HEAD
+[Unreleased]: https://github.com/AiryLark/claude-ide-tools/compare/v0.3.21...HEAD
+[0.3.21]: https://github.com/AiryLark/claude-ide-tools/compare/v0.3.20...v0.3.21
 [0.3.20]: https://github.com/AiryLark/claude-ide-tools/compare/v0.3.19...v0.3.20
 [0.3.19]: https://github.com/AiryLark/claude-ide-tools/compare/v0.3.16...v0.3.19
 [0.3.16]: https://github.com/AiryLark/claude-ide-tools/compare/v0.3.15...v0.3.16

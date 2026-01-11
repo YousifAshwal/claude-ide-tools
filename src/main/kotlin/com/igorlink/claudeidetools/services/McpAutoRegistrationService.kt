@@ -347,12 +347,20 @@ class McpAutoRegistrationService {
             val existed = removeResult == McpRemoveResult.REMOVED
 
             // Build command: claude mcp add -s user <name> -- node <path> [args...]
-            val command = mutableListOf<String>()
-            if (isWindows) {
-                command.addAll(listOf("cmd", "/c"))
+            // On macOS/Linux, we need to use a login shell to ensure PATH from ~/.zshrc is loaded
+            // (IDE launched from Dock doesn't inherit shell environment)
+            val claudeArgs = mutableListOf("claude", "mcp", "add", "-s", "user", serverName, "--", "node", normalizedPath)
+            claudeArgs.addAll(args)
+
+            val command = if (isWindows) {
+                listOf("cmd", "/c") + claudeArgs
+            } else {
+                // Use interactive login shell (-li) to source ~/.zshrc (where PATH is usually set)
+                // -l alone only sources ~/.zprofile, but most users have PATH in ~/.zshrc
+                listOf("/bin/zsh", "-li", "-c", claudeArgs.joinToString(" ") {
+                    if (it.contains(" ") || it.contains("\"")) "\"${it.replace("\"", "\\\"")}\"" else it
+                })
             }
-            command.addAll(listOf("claude", "mcp", "add", "-s", "user", serverName, "--", "node", normalizedPath))
-            command.addAll(args)
 
             logger.info("Running: ${command.joinToString(" ")}")
 
@@ -463,10 +471,13 @@ class McpAutoRegistrationService {
     private fun runClaudeMcpRemove(serverName: String): McpRemoveResult {
         return try {
             val isWindows = System.getProperty("os.name").lowercase().contains("win")
+            val claudeArgs = listOf("claude", "mcp", "remove", serverName, "-s", "user")
+
             val command = if (isWindows) {
-                listOf("cmd", "/c", "claude", "mcp", "remove", serverName, "-s", "user")
+                listOf("cmd", "/c") + claudeArgs
             } else {
-                listOf("claude", "mcp", "remove", serverName, "-s", "user")
+                // Use interactive login shell (-li) to source ~/.zshrc (where PATH is usually set)
+                listOf("/bin/zsh", "-li", "-c", claudeArgs.joinToString(" "))
             }
 
             logger.info("Running: ${command.joinToString(" ")}")
